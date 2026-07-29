@@ -2,16 +2,20 @@
 
 ## Repository Purpose
 
-This repository contains the Engineering Due Diligence Platform.
+This repository contains the foundation for the planned Engineering Due
+Diligence Platform.
 
-The platform supports a reproducible workflow for evaluating whether a public
-open source repository is appropriate for a specific engineering use case.
+The planned platform will support a reproducible workflow for evaluating
+whether a public open source repository is appropriate for a specific
+engineering use case.
 
-The system collects evidence, calculates deterministic metrics, evaluates
-context specific policies, generates an evidence grounded decision brief,
-supports human review, and preserves an audit record.
+The planned system will collect evidence, calculate deterministic metrics,
+evaluate context specific policies, generate an evidence grounded decision
+brief, support human review, and preserve an audit record.
 
 ## Primary Workflow
+
+The planned primary workflow is:
 
 1. An engineering reviewer submits a public GitHub repository.
 2. The reviewer describes the intended use, environment, criticality,
@@ -27,7 +31,7 @@ supports human review, and preserves an audit record.
 
 ## Current Scope
 
-The first supported workflow evaluates public GitHub repositories for one
+The planned first workflow will evaluate public GitHub repositories for one
 specified engineering use case.
 
 Private repositories, GitLab, continuous monitoring, automated installation,
@@ -36,16 +40,17 @@ approval are outside the four week scope.
 
 ## Main Technologies
 
-The initial implementation uses Python, FastAPI, Pydantic, PostgreSQL, pytest,
-the GitHub API, structured model outputs, OpenTelemetry, Docker Compose, and
-Grafana compatible telemetry.
+The planned initial implementation will use Python, FastAPI, Pydantic,
+PostgreSQL, pytest, the GitHub API, structured model outputs, OpenTelemetry,
+Docker Compose, and Grafana compatible telemetry.
 
 Technology choices may change only through an explicit architectural decision.
 
 ## Repository Structure
 
-* `src/engineering_due_diligence/` contains the Python application package.
-* `tests/` contains automated tests.
+* `src/engineering_due_diligence/` is reserved for the planned Python
+  application package.
+* `tests/` is reserved for automated tests.
 * `docs/` contains project, engagement, ADR, and checkpoint documentation.
 * `plans/` contains temporary implementation plans.
 * `journal/` contains daily engagement records.

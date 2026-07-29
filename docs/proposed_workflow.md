@@ -19,7 +19,7 @@ quality score to a repository.
 
 | Actor | Responsibility |
 | --- | --- |
-| Engineering reviewer | Submits the request, supplies use-case context, examines findings, and participates in the final decision |
+| Staff Software Engineer acting as the engineering reviewer | Submits the request, supplies use-case context, examines findings, and participates in the final decision |
 | Platform Engineering Lead | Owns the shared workflow and operational boundaries |
 | Application Security Engineer | Defines or reviews security requirements and participates when criticality or policy requires |
 | Engineering Manager | Owns product-team operational risk and required management approval |
@@ -30,7 +30,7 @@ quality score to a repository.
 
 ### 1. Submit the Adoption Request
 
-An engineering reviewer submits:
+A Staff Software Engineer acting as the engineering reviewer submits:
 
 * public GitHub repository URL;
 * intended use;

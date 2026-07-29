@@ -12,6 +12,18 @@ Establish a credible, internally consistent foundation for the four week
 simulated Forward Deployed Engineering engagement before architecture or
 application implementation begins.
 
+## Repository Preparation
+
+Before the engagement documentation was completed:
+
+* added the project mission, mandatory context, scope controls, and
+  implementation rules to `AGENTS.md` while preserving the general
+  memory-system guidance;
+* created the repository directories for documentation, plans, journal entries,
+  the Python package, tests, scripts, examples, and data; and
+* added empty `__init__.py` package markers without adding an application or
+  framework scaffold.
+
 ## Work Completed
 
 1. Read `AGENTS.md` and every file under `memory/` before planning or editing.
