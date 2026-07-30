@@ -1,9 +1,10 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** The Day 1 engagement foundation is complete. The Day 2
-> domain and failure models are complete, have passed behavioral review, and
-> remain uncommitted. No application code or infrastructure exists, and the
-> assessment workflow remains planned rather than implemented.
+> **Current status:** The Day 1 engagement foundation and reviewed Day 2 domain
+> and failure models are complete and committed. The first in-memory
+> deterministic Day 3 slice is implemented and verified locally but remains
+> uncommitted. No API, persistence, external integration, AI integration, or
+> infrastructure exists.
 
 ## Customer Problem
 
@@ -82,14 +83,35 @@ Completed on Day 2:
 * failure taxonomy, stage-specific failure behavior, fail-closed rules,
   idempotency, recovery, audit, and security requirements.
 
-Both Day 2 design documents are complete, passed behavioral review, and remain
-uncommitted.
+Both Day 2 design documents are complete, passed behavioral review, and are
+committed.
+
+Implemented locally on Day 3 and not yet committed:
+
+* immutable typed assessment context, evidence, metric, and policy records, with
+  local canonical fixtures for the scoped public GitHub facts: archived status,
+  license status, latest commit timestamp, and security policy presence;
+* fail-closed evidence validation for required and duplicate records, canonical
+  kinds, snapshot integrity and normalized values, valid available or
+  unavailable states, timezone awareness, and future timestamps;
+* versioned metric calculation plus canonical recalculation before policy
+  findings are accepted; invalid evidence returns no metric collection, and
+  invalid or altered metrics return no finding collection;
+* exact UTC elapsed-duration maintenance policy: 180-day and 730-day boundaries
+  are inclusive, while one second beyond either boundary fails;
+  `days_since_latest_commit` remains a floored display metric;
+* intrinsic validation before freshness handling; temporally valid stale or
+  unknown evidence remains unavailable and produces `not_evaluable`;
+* context-sensitive absent-license policy: `condition_required` for a prototype
+  and `fail` for strict production; and
+* deterministic, traceable evidence, metric, and finding identifiers, verified
+  by 52 passing tests.
 
 Not yet implemented:
 
 * assessment APIs or workflow orchestration;
-* evidence collectors or persistence;
-* metric calculators or policy evaluation;
+* GitHub evidence collectors or persistence;
+* metrics and policy outside the four-kind local deterministic slice;
 * AI or model integrations;
 * human-review interfaces or audit storage;
 * databases, Docker, CI, deployment, or production observability; and
@@ -99,8 +121,8 @@ Not yet implemented:
 
 | Week | Milestone | Status |
 | --- | --- | --- |
-| 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete but uncommitted; remaining Week 1 design work planned and not implemented |
-| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Planned |
+| 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
+| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | First local context-to-policy slice implemented and tested; persistence and workflow remain planned |
 | 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | Planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
@@ -159,9 +181,13 @@ capability.
 └── tests/
 ```
 
-The Python package and test package currently contain empty `__init__.py`
-markers only. There are no installation or runtime instructions because no
-application has been scaffolded.
+The Python package now contains the dependency-free deterministic slice. It is
+library code rather than an API or deployed application. Run its focused tests
+from the repository root with:
+
+```bash
+PYTHONPATH=src python3 -m unittest discover -s tests -v
+```
 
 ## Working in This Repository
 
@@ -174,4 +200,4 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_02_failure_model.md](plans/day_02_failure_model.md).
+[plans/day_03_deterministic_vertical_slice.md](plans/day_03_deterministic_vertical_slice.md).
