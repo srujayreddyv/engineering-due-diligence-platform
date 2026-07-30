@@ -146,7 +146,9 @@ The engagement should validate whether reviewers can:
 1. identify the source and collection time of material evidence;
 2. distinguish raw evidence from calculated metrics;
 3. understand which policy requirement produced each finding;
-4. trace material report claims to evidence or policy finding identifiers;
+4. trace direct factual claims to `EvidenceRecord`, calculated claims to the
+   exact `MetricResult`, and policy conclusions to the exact `PolicyFinding`
+   from the report's fixed input set;
 5. see missing or stale evidence and its effect on confidence;
 6. record a human decision and any conditions; and
 7. retrieve the complete audit record for later review.

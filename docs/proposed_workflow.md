@@ -113,8 +113,12 @@ references, metric results, and policy findings. It may:
 * generate questions for the reviewer; and
 * organize the material into a strict report schema.
 
-Every material generated claim must reference evidence or policy finding
-identifiers. Unsupported claims invalidate the output or lower confidence.
+Every material generated claim uses the type-correct record from the report's
+fixed input set: direct factual claims cite the relevant `EvidenceRecord`,
+calculated claims cite the exact `MetricResult`, and policy conclusions cite
+the exact `PolicyFinding`. An unsupported material claim makes the output
+unusable; lowering confidence does not substitute for the required
+deterministic validity gate.
 
 The model does not collect authoritative evidence, calculate metrics, enforce
 policy, control workflow state, or grant approval.
@@ -182,8 +186,9 @@ This record supports reproduction, debugging, later review, and reevaluation.
 * A human can request further investigation without fabricating a final
   disposition.
 
-Detailed failure behavior will be defined in a later failure-model document
-within the locked scope.
+Detailed failure classification, retryability, recovery, idempotency,
+fail-closed behavior, human visibility, and audit requirements are defined in
+the [failure model](failure_model.md).
 
 ## Workflow Outputs
 

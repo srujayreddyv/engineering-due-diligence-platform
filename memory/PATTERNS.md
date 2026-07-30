@@ -52,9 +52,13 @@ Avoid a universal repository quality score.
 
 AI output uses a strict structured schema.
 
-Every material conclusion must reference evidence or policy finding identifiers.
+Every material conclusion uses a type-correct reference from the fixed report
+input set: direct factual claims cite the relevant `EvidenceRecord`, calculated
+claims cite the exact `MetricResult`, and policy conclusions cite the exact
+`PolicyFinding`.
 
-Unsupported claims invalidate the output or lower confidence.
+An unsupported material claim makes the output unusable; lowering confidence
+does not substitute for the required deterministic validity gate.
 
 ## Workflow Pattern
 

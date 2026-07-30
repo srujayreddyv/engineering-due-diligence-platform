@@ -34,7 +34,10 @@ Record useful but nonessential ideas in docs/backlog.md.
    interpretation, and human decisions.
 2. Store raw evidence before calculating conclusions.
 3. Keep deterministic logic outside model prompts.
-4. Require evidence identifiers for significant generated claims.
+4. Require type-correct references for significant generated claims: direct
+   factual claims cite `EvidenceRecord`, calculated claims cite the exact
+   `MetricResult`, and policy conclusions cite the exact `PolicyFinding`.
+   Every reference must belong to the fixed report input set.
 5. Prefer a modular application over unnecessary distributed infrastructure.
 6. Add tests for every behavior change.
 7. Do not perform unrelated refactoring.

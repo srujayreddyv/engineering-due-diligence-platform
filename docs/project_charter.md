@@ -164,7 +164,10 @@ Milestones after Day 1 describe planned work, not completed capability.
 * Evidence, metrics, policy findings, model interpretations, and human decisions
   remain distinguishable.
 * Deterministic software owns metrics and policy.
-* Material generated claims cite evidence or policy finding identifiers.
+* Material generated claims use type-correct references from the fixed report
+  input set: direct factual claims cite `EvidenceRecord`, calculated claims cite
+  the exact `MetricResult`, and policy conclusions cite the exact
+  `PolicyFinding`.
 * Missing evidence remains explicit and reduces confidence.
 * A human owns the final adoption decision.
 * Meaningful architectural changes require an ADR.

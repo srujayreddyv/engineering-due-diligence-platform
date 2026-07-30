@@ -27,8 +27,10 @@ explain.
 AI is used for explanation, tradeoff analysis, uncertainty communication,
 reviewer questions, and context aware report generation.
 
-Generated conclusions must be grounded in identifiers from collected evidence
-or policy findings.
+Generated conclusions must use type-correct identifiers from the fixed report
+input set: direct factual claims cite `EvidenceRecord`, calculated claims cite
+the exact `MetricResult`, and policy conclusions cite the exact
+`PolicyFinding`.
 
 ## D005: Human Approval Is Required
 

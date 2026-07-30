@@ -1,8 +1,9 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** Day 1 engagement foundation. The repository contains the
-> project definition, durable engineering context, and documentation scaffold.
-> The assessment workflow is planned but not implemented.
+> **Current status:** The Day 1 engagement foundation is complete. The Day 2
+> domain and failure models are complete, have passed behavioral review, and
+> remain uncommitted. No application code or infrastructure exists, and the
+> assessment workflow remains planned rather than implemented.
 
 ## Customer Problem
 
@@ -70,6 +71,20 @@ Completed on Day 1:
 * deferred backlog and documentation map; and
 * Day 1 execution plan and journal.
 
+Completed on Day 2:
+
+* logical definitions for the seven assessment domain entities;
+* entity ownership, identifiers, relationships, lifecycle boundaries,
+  immutability, versioning, and audit obligations; and
+* documented handling for incomplete evidence, repeat processing, human review,
+  reassessment, and workflow interruption;
+* final behavioral review of the corrected domain model and failure model; and
+* failure taxonomy, stage-specific failure behavior, fail-closed rules,
+  idempotency, recovery, audit, and security requirements.
+
+Both Day 2 design documents are complete, passed behavioral review, and remain
+uncommitted.
+
 Not yet implemented:
 
 * assessment APIs or workflow orchestration;
@@ -84,7 +99,7 @@ Not yet implemented:
 
 | Week | Milestone | Status |
 | --- | --- | --- |
-| 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation complete; remaining design work planned |
+| 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete but uncommitted; remaining Week 1 design work planned and not implemented |
 | 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Planned |
 | 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | Planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
@@ -104,6 +119,10 @@ capability.
   points to validate.
 * [Proposed workflow](docs/proposed_workflow.md) — target workflow and system,
   AI, and human boundaries.
+* [Domain model](docs/domain_model.md) — logical entities, relationships,
+  lifecycle boundaries, immutability, versioning, and audit requirements.
+* [Failure model](docs/failure_model.md) — failure taxonomy, stage behavior,
+  idempotency, recovery, fail-closed, audit, and security requirements.
 * [Success criteria](docs/success_criteria.md) — system metrics and separate
   prototype customer validation measures.
 * [Backlog](docs/backlog.md) — deferred ideas outside active scope.
@@ -154,5 +173,5 @@ Before planning or editing:
 4. read relevant ADRs and the current task plan; and
 5. preserve the locked scope and documentation-layer boundaries.
 
-The current execution plan is
-[plans/day_01_engagement_foundation.md](plans/day_01_engagement_foundation.md).
+The current active plan is
+[plans/day_02_failure_model.md](plans/day_02_failure_model.md).
