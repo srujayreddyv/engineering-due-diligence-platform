@@ -1,10 +1,9 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** The Day 1 engagement foundation and reviewed Day 2 domain
-> and failure models are complete and committed. The first in-memory
-> deterministic Day 3 slice is implemented and verified locally but remains
-> uncommitted. No API, persistence, external integration, AI integration, or
-> infrastructure exists.
+> **Current status:** The Day 1 engagement foundation, reviewed Day 2 domain and
+> failure models, deterministic Day 3 slice, and Day 4 transient in-memory
+> result assembly are complete and committed. Persistence, workflow,
+> collectors, reports, APIs, and human decisions remain unimplemented.
 
 ## Customer Problem
 
@@ -86,7 +85,7 @@ Completed on Day 2:
 Both Day 2 design documents are complete, passed behavioral review, and are
 committed.
 
-Implemented locally on Day 3 and not yet committed:
+Committed on Day 3:
 
 * immutable typed assessment context, evidence, metric, and policy records, with
   local canonical fixtures for the scoped public GitHub facts: archived status,
@@ -107,13 +106,26 @@ Implemented locally on Day 3 and not yet committed:
 * deterministic, traceable evidence, metric, and finding identifiers, verified
   by 52 passing tests.
 
+Committed on Day 4:
+
+* a frozen transient `DeterministicAssessmentResult` that keeps one assessment
+  context, its canonical evidence tuple, exact Day 3 metrics and findings, and
+  the caller-supplied aware evaluation timestamp together in memory;
+* one `evaluate_assessment` boundary that snapshots caller evidence once,
+  delegates exactly once to `evaluate_slice`, canonically orders validated
+  evidence, and constructs no partial result on failure;
+* preservation of timestamp representations and complete evidence-to-metric-to-
+  finding reference closure without duplicating Day 3 validation; and
+* nine focused Day 4 tests, with all 61 repository tests passing.
+
 Not yet implemented:
 
-* assessment APIs or workflow orchestration;
-* GitHub evidence collectors or persistence;
+* persistence or workflow orchestration;
+* GitHub evidence collectors;
+* assessment APIs;
+* generated reports or AI/model integrations;
+* human decisions, review interfaces, or audit storage;
 * metrics and policy outside the four-kind local deterministic slice;
-* AI or model integrations;
-* human-review interfaces or audit storage;
 * databases, Docker, CI, deployment, or production observability; and
 * prototype evaluation results.
 
@@ -122,7 +134,7 @@ Not yet implemented:
 | Week | Milestone | Status |
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
-| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | First local context-to-policy slice implemented and tested; persistence and workflow remain planned |
+| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Deterministic context-to-policy slice committed and transient result assembly verified; persistence and workflow remain planned |
 | 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | Planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
@@ -181,9 +193,9 @@ capability.
 └── tests/
 ```
 
-The Python package now contains the dependency-free deterministic slice. It is
-library code rather than an API or deployed application. Run its focused tests
-from the repository root with:
+The Python package now contains the dependency-free deterministic slice and
+transient in-memory result assembly. It is library code rather than an API or
+deployed application. Run its tests from the repository root with:
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
@@ -200,4 +212,4 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_03_deterministic_vertical_slice.md](plans/day_03_deterministic_vertical_slice.md).
+[plans/day_04_in_memory_assessment_result.md](plans/day_04_in_memory_assessment_result.md).
