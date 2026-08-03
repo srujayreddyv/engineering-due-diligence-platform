@@ -2,9 +2,10 @@
 
 > **Current status:** The Day 1 engagement foundation, reviewed Day 2 domain and
 > failure models, deterministic Day 3 slice, Day 4 transient in-memory result
-> assembly, and Day 5 transient request validation boundary are complete.
-> GitHub existence checks, persistence, workflow, audit, collectors, reports,
-> APIs, and human decisions remain unimplemented.
+> assembly, Day 5 transient request validation, and the Day 6 transient public
+> GitHub repository metadata collector are complete. Durable evidence,
+> persistence, workflow, remaining collectors, audit, reports, APIs, and human
+> decisions remain unimplemented.
 
 ## Customer Problem
 
@@ -134,17 +135,39 @@ Completed on Day 5:
   preserving owner and repository casing and the exact submitted request; and
 * 14 focused Day 5 tests, with all 75 repository tests passing.
 
+Completed on Day 6:
+
+* frozen transient public GitHub collection input, error, outcome, and result
+  contracts plus one dependency-free collector boundary;
+* one unauthenticated request to
+  `GET https://api.github.com/repos/<owner>/<repository>` that currently
+  captures the authoritative GitHub repository ID and archived status only;
+* strict noncoercing validation of `id`, `full_name`, and `archived`, with
+  case-insensitive repository binding while preserving the requested identity;
+* preservation of the exact successful raw response text, matching SHA256
+  digest, source identity, collector version, collection-attempt metadata, and
+  a sanitized ETag when supplied;
+* structured sanitized outcomes for public unavailability, rate limits,
+  authorization and request rejection, server failures, timeouts,
+  connectivity failures, malformed responses, and unexpected statuses, with
+  no partial evidence on unsuccessful outcomes; and
+* 13 focused Day 6 tests, with all 88 repository tests passing.
+
+The Day 6 result remains a transient collection-operation value. It is not a
+persisted authoritative `EvidenceRecord` and cannot enter deterministic metric
+or policy evaluation until a later persistence boundary makes the required raw
+evidence durable.
+
 Not yet implemented:
 
-* persistence or workflow orchestration;
-* GitHub repository existence or visibility checks and evidence collectors;
-* audit recording or storage;
-* assessment APIs;
-* generated reports or AI/model integrations;
-* human decisions or review interfaces;
-* metrics and policy outside the four-kind local deterministic slice;
-* databases, Docker, CI, deployment, or production observability; and
-* prototype evaluation results.
+* durable request or evidence persistence and workflow orchestration;
+* conversion of transient GitHub captures into authoritative evidence records
+  eligible for deterministic evaluation;
+* GitHub license, latest-commit, security-policy, and other required collectors,
+  plus authenticated or private-repository support;
+* audit history, assessment APIs, generated reports, and AI/model integration;
+* human decisions and review interfaces; and
+* databases, deployment, production observability, and prototype evaluation.
 
 ## Four Week Milestones
 
@@ -152,7 +175,7 @@ Not yet implemented:
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
 | 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Transient request validation, deterministic context-to-policy slice, and result assembly verified; persistence and workflow remain planned |
-| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | Planned |
+| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | First transient public GitHub repository metadata collector verified; persistence, remaining collection, reporting, review, audit, and observability remain planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
 Milestones describe intended sequencing and are not claims of completed
@@ -211,9 +234,9 @@ capability.
 ```
 
 The Python package now contains the dependency-free transient request
-validation boundary, deterministic slice, and in-memory result assembly. It is
-library code rather than an API or deployed application. Run its tests from the
-repository root with:
+validation and public GitHub metadata collection boundaries, deterministic
+slice, and in-memory result assembly. It is library code rather than an API or
+deployed application. Run its tests from the repository root with:
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
@@ -230,4 +253,4 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_05_assessment_request_validation.md](plans/day_05_assessment_request_validation.md).
+[plans/day_06_public_github_repository_metadata_collection.md](plans/day_06_public_github_repository_metadata_collection.md).
