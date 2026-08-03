@@ -1,9 +1,10 @@
 # Engineering Due Diligence Platform
 
 > **Current status:** The Day 1 engagement foundation, reviewed Day 2 domain and
-> failure models, deterministic Day 3 slice, and Day 4 transient in-memory
-> result assembly are complete and committed. Persistence, workflow,
-> collectors, reports, APIs, and human decisions remain unimplemented.
+> failure models, deterministic Day 3 slice, Day 4 transient in-memory result
+> assembly, and Day 5 transient request validation boundary are complete.
+> GitHub existence checks, persistence, workflow, audit, collectors, reports,
+> APIs, and human decisions remain unimplemented.
 
 ## Customer Problem
 
@@ -118,13 +119,29 @@ Committed on Day 4:
   finding reference closure without duplicating Day 3 validation; and
 * nine focused Day 4 tests, with all 61 repository tests passing.
 
+Completed on Day 5:
+
+* frozen transient `AssessmentRequestInput`,
+  `AssessmentRequestValidationError`, and
+  `AssessmentRequestValidationResult` contracts;
+* one deterministic `validate_assessment_request` boundary that accepts
+  submitted context, validates every field in a stable order, and produces the
+  existing `AssessmentContext` only after the complete request is valid;
+* structured field-level validation errors with one first-precedence error per
+  field and no partial context or normalized identity on invalid input;
+* strict HTTPS `github.com/<owner>/<repository>` locator validation and
+  canonical `github.com/<owner>/<repository>` identity construction while
+  preserving owner and repository casing and the exact submitted request; and
+* 14 focused Day 5 tests, with all 75 repository tests passing.
+
 Not yet implemented:
 
 * persistence or workflow orchestration;
-* GitHub evidence collectors;
+* GitHub repository existence or visibility checks and evidence collectors;
+* audit recording or storage;
 * assessment APIs;
 * generated reports or AI/model integrations;
-* human decisions, review interfaces, or audit storage;
+* human decisions or review interfaces;
 * metrics and policy outside the four-kind local deterministic slice;
 * databases, Docker, CI, deployment, or production observability; and
 * prototype evaluation results.
@@ -134,7 +151,7 @@ Not yet implemented:
 | Week | Milestone | Status |
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
-| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Deterministic context-to-policy slice committed and transient result assembly verified; persistence and workflow remain planned |
+| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Transient request validation, deterministic context-to-policy slice, and result assembly verified; persistence and workflow remain planned |
 | 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | Planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
@@ -193,9 +210,10 @@ capability.
 └── tests/
 ```
 
-The Python package now contains the dependency-free deterministic slice and
-transient in-memory result assembly. It is library code rather than an API or
-deployed application. Run its tests from the repository root with:
+The Python package now contains the dependency-free transient request
+validation boundary, deterministic slice, and in-memory result assembly. It is
+library code rather than an API or deployed application. Run its tests from the
+repository root with:
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
@@ -212,4 +230,4 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_04_in_memory_assessment_result.md](plans/day_04_in_memory_assessment_result.md).
+[plans/day_05_assessment_request_validation.md](plans/day_05_assessment_request_validation.md).
