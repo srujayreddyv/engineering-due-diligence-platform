@@ -51,3 +51,15 @@ New ideas are recorded in docs/backlog.md.
 
 They enter active scope only when required for the primary workflow, correctness,
 security, reliability, evaluation, or essential customer feedback.
+
+## D008: SQLite Is the Prototype Durable Store
+
+The first concrete persistence boundary uses an on-disk SQLite database through
+Python's standard-library `sqlite3` module with a caller-supplied path,
+foreign-key enforcement, transactional linked writes, and close-and-reopen
+verification before authoritative evidence is returned.
+
+The complete source response is stored separately from the compact normalized
+`EvidenceRecord` snapshot. This is a prototype storage decision, not a
+production database selection; PostgreSQL and production operations remain
+deferred.

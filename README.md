@@ -3,9 +3,11 @@
 > **Current status:** The Day 1 engagement foundation, reviewed Day 2 domain and
 > failure models, deterministic Day 3 slice, Day 4 transient in-memory result
 > assembly, Day 5 transient request validation, and the Day 6 transient public
-> GitHub repository metadata collector are complete. Durable evidence,
-> persistence, workflow, remaining collectors, audit, reports, APIs, and human
-> decisions remain unimplemented.
+> GitHub repository metadata collector are complete. Day 7 selected on-disk
+> SQLite through Python `sqlite3` as the concrete prototype persistence
+> direction. Persistence is designed but not implemented; durable evidence,
+> workflow, remaining collectors, audit, reports, APIs, and human decisions
+> remain unimplemented.
 
 ## Customer Problem
 
@@ -158,6 +160,21 @@ persisted authoritative `EvidenceRecord` and cannot enter deterministic metric
 or policy evaluation until a later persistence boundary makes the required raw
 evidence durable.
 
+Completed on Day 7:
+
+* selected a caller-supplied on-disk SQLite database through Python `sqlite3`
+  as the concrete prototype durable store;
+* defined request-before-collection ordering, atomic collection-attempt,
+  source-snapshot, and normalized-evidence writes, and close-and-reopen
+  verification before evidence becomes authoritative;
+* kept the complete GitHub response separate from the compact canonical
+  snapshot required by the existing `EvidenceRecord`; and
+* recorded the decision in
+  [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md).
+
+Persistence remains a reviewed design only. No SQLite module, schema, database
+file, migration, or persistence test has been implemented.
+
 Not yet implemented:
 
 * durable request or evidence persistence and workflow orchestration;
@@ -200,6 +217,9 @@ capability.
 * [Success criteria](docs/success_criteria.md) — system metrics and separate
   prototype customer validation measures.
 * [Backlog](docs/backlog.md) — deferred ideas outside active scope.
+* [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md) — SQLite
+  as the concrete prototype persistence store, without making a production
+  database decision.
 
 ### Engineering Context
 
@@ -253,4 +273,6 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_06_public_github_repository_metadata_collection.md](plans/day_06_public_github_repository_metadata_collection.md).
+[plans/day_07_persistence_direction_review.md](plans/day_07_persistence_direction_review.md),
+with the durable decision recorded in
+[ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md).
