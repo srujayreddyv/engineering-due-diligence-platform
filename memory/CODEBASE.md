@@ -2,8 +2,8 @@
 
 ## Repository Purpose
 
-This repository contains the foundation for the planned Engineering Due
-Diligence Platform.
+This repository contains the tested library foundation for the Engineering Due
+Diligence Platform prototype.
 
 The planned platform will support a reproducible workflow for evaluating
 whether a public open source repository is appropriate for a specific
@@ -38,19 +38,32 @@ Private repositories, GitLab, continuous monitoring, automated installation,
 technology comparisons, vendor reviews, AI model reviews, and automatic
 approval are outside the four week scope.
 
-## Main Technologies
+## Implemented Runtime
 
-The planned initial implementation will use Python, FastAPI, Pydantic,
-PostgreSQL, pytest, the GitHub API, structured model outputs, OpenTelemetry,
-Docker Compose, and Grafana compatible telemetry.
+The current implementation is dependency-free Python library code using the
+standard library, including `urllib` for one public GitHub request and
+`sqlite3` for caller-supplied on-disk prototype persistence. Tests use
+`unittest` and real temporary SQLite files; collector tests patch the private
+transport seam and make no live network calls.
 
-Technology choices may change only through an explicit architectural decision.
+Implemented boundaries include transient request validation, one public GitHub
+repository-metadata collector, deterministic evidence-to-policy evaluation,
+in-memory assessment result assembly, and SQLite persistence for validated
+requests and terminal repository-archived collection outcomes.
+
+FastAPI, Pydantic, PostgreSQL, model integration, OpenTelemetry, Docker Compose,
+and Grafana-compatible telemetry remain planned or deferred rather than
+implemented. Technology decisions change only through explicit architectural
+review; ADR 0001 selects SQLite for the prototype without making a production
+database decision.
 
 ## Repository Structure
 
-* `src/engineering_due_diligence/` is reserved for the planned Python
-  application package.
-* `tests/` is reserved for automated tests.
+* `src/engineering_due_diligence/` contains the Python library boundaries for
+  models, deterministic evaluation, request validation, GitHub collection,
+  assessment assembly, and SQLite persistence.
+* `tests/` contains the automated `unittest` suite, including focused real-file
+  SQLite persistence tests.
 * `docs/` contains project, engagement, ADR, and checkpoint documentation.
 * `plans/` contains temporary implementation plans.
 * `journal/` contains daily engagement records.

@@ -1,13 +1,13 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** The Day 1 engagement foundation, reviewed Day 2 domain and
-> failure models, deterministic Day 3 slice, Day 4 transient in-memory result
-> assembly, Day 5 transient request validation, and the Day 6 transient public
-> GitHub repository metadata collector are complete. Day 7 selected on-disk
-> SQLite through Python `sqlite3` as the concrete prototype persistence
-> direction. Persistence is designed but not implemented; durable evidence,
-> workflow, remaining collectors, audit, reports, APIs, and human decisions
-> remain unimplemented.
+> **Current status:** Days 1 through 7 established the engagement, domain and
+> failure models, deterministic evaluation slice, transient request and public
+> GitHub metadata boundaries, and the SQLite persistence direction. Day 8 now
+> makes valid requests and terminal repository-archived collection outcomes
+> durable in caller-supplied on-disk SQLite. The boundary remains a narrow
+> library slice: workflow orchestration, remaining collectors, evaluation
+> integration, audit, reports, APIs, model use, and human decisions remain
+> unimplemented.
 
 ## Customer Problem
 
@@ -155,10 +155,9 @@ Completed on Day 6:
   no partial evidence on unsuccessful outcomes; and
 * 13 focused Day 6 tests, with all 88 repository tests passing.
 
-The Day 6 result remains a transient collection-operation value. It is not a
-persisted authoritative `EvidenceRecord` and cannot enter deterministic metric
-or policy evaluation until a later persistence boundary makes the required raw
-evidence durable.
+The Day 6 result remains transient until it passes through the Day 8
+persistence boundary. The collector itself does not create authoritative
+evidence.
 
 Completed on Day 7:
 
@@ -172,27 +171,45 @@ Completed on Day 7:
 * recorded the decision in
   [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md).
 
-Persistence remains a reviewed design only. No SQLite module, schema, database
-file, migration, or persistence test has been implemented.
+Completed on Day 8:
+
+* one concrete standard-library SQLite boundary persists complete valid Day 5
+  requests before accepting linked Day 6 collection outcomes;
+* schema version 1 stores assessment requests, collection attempts, full GitHub
+  source snapshots, and normalized evidence in four linked tables;
+* available results atomically store the attempt, exact GitHub response bytes,
+  and compact repository-archived `EvidenceRecord`; 404 results atomically
+  store the attempt and unavailable evidence; retryable and nonretryable
+  failures store only the attempt and produce no evidence;
+* the complete GitHub response remains separate from the compact canonical
+  evidence snapshot, with both digests independently verified;
+* available and unavailable evidence becomes authoritative only after the
+  database is closed, reopened, and all fields, relationships, payload
+  bindings, digests, versions, and existing constructors are verified;
+* exact replay is idempotent, conflicting replay is rejected without mutation,
+  and incomplete linked writes roll back; and
+* 15 focused Day 8 tests pass, with all 103 repository tests passing.
+
+This persistence slice supports only `EvidenceKind.REPOSITORY_ARCHIVED`. It is
+not connected to deterministic assessment evaluation.
 
 Not yet implemented:
 
-* durable request or evidence persistence and workflow orchestration;
-* conversion of transient GitHub captures into authoritative evidence records
-  eligible for deterministic evaluation;
-* GitHub license, latest-commit, security-policy, and other required collectors,
-  plus authenticated or private-repository support;
-* audit history, assessment APIs, generated reports, and AI/model integration;
+* workflow orchestration and deterministic evaluation integration for durable
+  evidence;
+* GitHub license, latest-commit, and security-policy collectors and their
+  persistence slices;
+* audit history, assessment APIs, generated reports, and model integration;
 * human decisions and review interfaces; and
-* databases, deployment, production observability, and prototype evaluation.
+* production storage and deployment, observability, and prototype evaluation.
 
 ## Four Week Milestones
 
 | Week | Milestone | Status |
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
-| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Transient request validation, deterministic context-to-policy slice, and result assembly verified; persistence and workflow remain planned |
-| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | First transient public GitHub repository metadata collector verified; persistence, remaining collection, reporting, review, audit, and observability remain planned |
+| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy slice, result assembly, and repository-archived SQLite persistence verified; workflow remains planned |
+| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | First public GitHub metadata collector and its repository-archived persistence slice verified; remaining collection, reporting, review, audit, and observability remain planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
 Milestones describe intended sequencing and are not claims of completed
@@ -253,10 +270,11 @@ capability.
 └── tests/
 ```
 
-The Python package now contains the dependency-free transient request
-validation and public GitHub metadata collection boundaries, deterministic
-slice, and in-memory result assembly. It is library code rather than an API or
-deployed application. Run its tests from the repository root with:
+The Python package now contains dependency-free transient request validation
+and public GitHub metadata collection, deterministic evaluation and in-memory
+result assembly, plus the concrete SQLite repository-archived persistence
+boundary. It is library code rather than an API or deployed application. Run
+its tests from the repository root with:
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
@@ -273,6 +291,6 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_07_persistence_direction_review.md](plans/day_07_persistence_direction_review.md),
-with the durable decision recorded in
+[plans/day_08_sqlite_repository_archived_persistence.md](plans/day_08_sqlite_repository_archived_persistence.md),
+with its durable storage decision recorded in
 [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md).

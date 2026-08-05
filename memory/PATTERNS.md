@@ -16,7 +16,8 @@ Before a meaningful implementation task:
 
 ## Evidence Collection Pattern
 
-Collectors return normalized evidence records.
+Collectors return transient collection results. Persistence, not collection,
+is the authority boundary that may reconstruct a normalized evidence record.
 
 Collectors do not calculate adoption recommendations.
 
@@ -25,6 +26,25 @@ calculations occur.
 
 Every collection attempt records success, failure, timestamp, source, and
 freshness information.
+
+## SQLite Persistence Pattern
+
+For the concrete prototype persistence boundary:
+
+1. Accept only exact upstream contracts and re-run their existing invariants.
+2. Persist a valid request before linked collection outcomes.
+3. Use explicit SQLite transactions for every linked record set and roll back
+   incomplete writes.
+4. Keep complete source responses separate from compact normalized evidence.
+5. Close and reopen the on-disk database before returning authoritative
+   evidence.
+6. Recompute digests from reopened bytes, revalidate source payload binding and
+   normalized values, and reconstruct existing domain contracts.
+7. Treat an exact replay as idempotent and any reused identity with different
+   material content as a nonmutating conflict.
+8. Expose only stable persistence categories and constant safe messages for
+   expected storage failures; do not translate programmer errors into ordinary
+   persistence outcomes.
 
 ## Metric Pattern
 
