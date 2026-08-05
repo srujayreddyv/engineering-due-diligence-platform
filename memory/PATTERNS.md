@@ -45,6 +45,12 @@ For the concrete prototype persistence boundary:
 8. Expose only stable persistence categories and constant safe messages for
    expected storage failures; do not translate programmer errors into ordinary
    persistence outcomes.
+9. Evolve the concrete schema only from an exact supported prior version, in
+   one explicit transaction; copy and compare durable rows by primary key,
+   verify normalized schema definitions and foreign keys before advancing
+   `PRAGMA user_version`, and roll back the complete migration on failure.
+10. Use explicit typed columns and constraints for each implemented evidence
+    value rather than a generic unvalidated value store.
 
 ## Metric Pattern
 

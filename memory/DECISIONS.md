@@ -63,3 +63,10 @@ The complete source response is stored separately from the compact normalized
 `EvidenceRecord` snapshot. This is a prototype storage decision, not a
 production database selection; PostgreSQL and production operations remain
 deferred.
+
+The concrete schema is versioned with `PRAGMA user_version`. Schema version 2
+supports repository-archived and license-status evidence through separate
+typed value columns. An exact schema version 1 database migrates in one
+transaction, preserving archived content and advancing the version only after
+schema, row, and foreign-key verification. This does not introduce a general
+migration framework or generic evidence-value store.

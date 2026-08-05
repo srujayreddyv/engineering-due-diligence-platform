@@ -1,13 +1,13 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** Days 1 through 7 established the engagement, domain and
+> **Current status:** Days 1 through 8 established the engagement, domain and
 > failure models, deterministic evaluation slice, transient request and public
-> GitHub metadata boundaries, and the SQLite persistence direction. Day 8 now
-> makes valid requests and terminal repository-archived collection outcomes
-> durable in caller-supplied on-disk SQLite. The boundary remains a narrow
-> library slice: workflow orchestration, remaining collectors, evaluation
-> integration, audit, reports, APIs, model use, and human decisions remain
-> unimplemented.
+> GitHub metadata boundaries, and durable repository-archived evidence. Day 9
+> adds strict public GitHub license-status collection and durable license
+> evidence through SQLite schema version 2. The boundary remains a narrow
+> library slice: latest-commit and security-policy collection, workflow
+> orchestration, evaluation integration, audit, reports, APIs, model use, and
+> human decisions remain unimplemented.
 
 ## Customer Problem
 
@@ -190,15 +190,37 @@ Completed on Day 8:
   and incomplete linked writes roll back; and
 * 15 focused Day 8 tests pass, with all 103 repository tests passing.
 
-This persistence slice supports only `EvidenceKind.REPOSITORY_ARCHIVED`. It is
-not connected to deterministic assessment evaluation.
+Completed on Day 9:
+
+* one strict transient collector reuses the existing private transport seam
+  for exactly one unauthenticated request to
+  `GET https://api.github.com/repos/<owner>/<repository>`;
+* a valid GitHub license object becomes `LicenseStatus.PRESENT`, while an
+  explicit `license: null` becomes `LicenseStatus.ABSENT`; missing or malformed
+  license data fails closed and never becomes absence;
+* license presence means only that GitHub returned detected license metadata;
+  it is not legal analysis, compatibility analysis, or a policy conclusion;
+* SQLite schema version 2 supports durable repository-archived and
+  license-status evidence, with exact schema version 1 databases migrated
+  transactionally without changing existing archived rows or timestamps;
+* available license outcomes atomically persist the attempt, complete GitHub
+  response, and compact `EvidenceRecord`; 404 outcomes persist the attempt and
+  unavailable evidence, while other failures persist only the attempt;
+* complete responses remain separate from compact canonical evidence, and
+  only evidence reconstructed and verified after database close and reopen is
+  authoritative; and
+* 20 focused collector tests and 23 focused persistence tests pass, with all
+  146 repository tests passing.
+
+Repository-archived and license-status evidence are now durable. Persistence
+is not yet connected to deterministic assessment evaluation.
 
 Not yet implemented:
 
-* workflow orchestration and deterministic evaluation integration for durable
-  evidence;
-* GitHub license, latest-commit, and security-policy collectors and their
+* latest-commit timestamp and security-policy presence collectors and their
   persistence slices;
+* workflow orchestration and deterministic evaluation integration for the
+  complete four-kind durable evidence set;
 * audit history, assessment APIs, generated reports, and model integration;
 * human decisions and review interfaces; and
 * production storage and deployment, observability, and prototype evaluation.
@@ -208,8 +230,8 @@ Not yet implemented:
 | Week | Milestone | Status |
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
-| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy slice, result assembly, and repository-archived SQLite persistence verified; workflow remains planned |
-| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | First public GitHub metadata collector and its repository-archived persistence slice verified; remaining collection, reporting, review, audit, and observability remain planned |
+| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy slice, result assembly, and archived/license SQLite persistence verified; workflow remains planned |
+| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | Repository archived and license status collection and persistence verified; latest-commit, security-policy, reporting, review, audit, and observability remain planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
 Milestones describe intended sequencing and are not claims of completed
@@ -270,11 +292,12 @@ capability.
 └── tests/
 ```
 
-The Python package now contains dependency-free transient request validation
-and public GitHub metadata collection, deterministic evaluation and in-memory
-result assembly, plus the concrete SQLite repository-archived persistence
-boundary. It is library code rather than an API or deployed application. Run
-its tests from the repository root with:
+The Python package now contains dependency-free transient request validation,
+public GitHub archived-status and license-status collection, deterministic
+evaluation and in-memory result assembly, plus concrete SQLite persistence for
+validated requests and those two evidence kinds. It is library code rather
+than an API or deployed application. Run its tests from the repository root
+with:
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
@@ -291,6 +314,6 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_08_sqlite_repository_archived_persistence.md](plans/day_08_sqlite_repository_archived_persistence.md),
+[plans/day_09_public_github_license_status_collection_and_persistence.md](plans/day_09_public_github_license_status_collection_and_persistence.md),
 with its durable storage decision recorded in
 [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md).

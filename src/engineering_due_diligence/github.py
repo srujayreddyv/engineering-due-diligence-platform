@@ -13,10 +13,11 @@ from typing import Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .models import EvidenceKind
+from .models import EvidenceKind, LicenseStatus
 
 
 _COLLECTOR_VERSION = "public-github-repository-metadata.v1"
+_LICENSE_COLLECTOR_VERSION = "public-github-license-status.v1"
 _HTTP_TIMEOUT_SECONDS = 10.0
 _CANONICAL_IDENTITY_PATTERN = re.compile(
     r"github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)\Z"
@@ -195,6 +196,49 @@ def _validated_payload_values(
     if type(archived) is not bool:
         return None
     return str(repository_id), archived
+
+
+def _valid_license_text(value: object) -> bool:
+    return (
+        type(value) is str
+        and bool(value)
+        and value == value.strip()
+        and value.isprintable()
+    )
+
+
+def _validated_license_payload_values(
+    raw_snapshot: object, requested_full_name: str
+) -> Optional[Tuple[str, LicenseStatus]]:
+    if type(raw_snapshot) is not str:
+        return None
+    try:
+        payload = json.loads(
+            raw_snapshot,
+            parse_constant=_reject_json_constant,
+        )
+    except (TypeError, ValueError):
+        return None
+    if type(payload) is not dict or "license" not in payload:
+        return None
+
+    repository_id = payload.get("id")
+    full_name = payload.get("full_name")
+    license_metadata = payload["license"]
+    if type(repository_id) is not int or repository_id <= 0:
+        return None
+    if _full_name_parts(full_name) is None:
+        return None
+    if full_name.casefold() != requested_full_name.casefold():
+        return None
+    if license_metadata is None:
+        return str(repository_id), LicenseStatus.ABSENT
+    if type(license_metadata) is not dict:
+        return None
+    for field_name in ("key", "name", "spdx_id"):
+        if not _valid_license_text(license_metadata.get(field_name)):
+            return None
+    return str(repository_id), LicenseStatus.PRESENT
 
 
 @dataclass(frozen=True)
@@ -445,6 +489,183 @@ class GitHubRepositoryMetadataCollectionResult:
             raise ValueError("failure result does not match classification")
 
 
+@dataclass(frozen=True)
+class GitHubLicenseStatusCollectionResult:
+    """Complete transient output of one GitHub license collection attempt."""
+
+    request: GitHubRepositoryMetadataCollectionInput
+    outcome: GitHubCollectionOutcome
+    evidence_kind: EvidenceKind
+    collector_version: str
+    source_identity: str
+    repository_source_id: Optional[str]
+    license_status: Optional[LicenseStatus]
+    raw_snapshot: Optional[str]
+    integrity_digest: Optional[str]
+    response_status: Optional[int]
+    response_etag: Optional[str]
+    error: Optional[GitHubRepositoryMetadataCollectionError]
+
+    def __post_init__(self) -> None:
+        if type(self.request) is not GitHubRepositoryMetadataCollectionInput:
+            raise ValueError(
+                "request must be a GitHubRepositoryMetadataCollectionInput"
+            )
+        if type(self.outcome) is not GitHubCollectionOutcome:
+            raise ValueError("outcome must be a GitHubCollectionOutcome")
+        if self.evidence_kind is not EvidenceKind.LICENSE_STATUS:
+            raise ValueError("evidence_kind must be license_status")
+        if self.collector_version != _LICENSE_COLLECTOR_VERSION:
+            raise ValueError("collector_version is not supported")
+        if self.source_identity != _source_identity(self.request):
+            raise ValueError("source_identity does not match request")
+        if self.response_status is not None and (
+            type(self.response_status) is not int
+            or not 100 <= self.response_status <= 599
+        ):
+            raise ValueError("response_status must be a valid HTTP status")
+        if self.response_etag is not None:
+            if self.outcome is not GitHubCollectionOutcome.AVAILABLE:
+                raise ValueError("response_etag is valid only when available")
+            if _safe_header_value(self.response_etag) != self.response_etag:
+                raise ValueError("response_etag must be a safe header value")
+
+        if self.outcome is GitHubCollectionOutcome.AVAILABLE:
+            self._validate_available()
+            return
+        self._validate_nonavailable()
+
+    def _validate_available(self) -> None:
+        if self.response_status != 200 or self.error is not None:
+            raise ValueError(
+                "available result requires HTTP 200 and no error"
+            )
+        if (
+            type(self.repository_source_id) is not str
+            or not self.repository_source_id.isascii()
+            or not self.repository_source_id.isdecimal()
+        ):
+            raise ValueError(
+                "available result requires a decimal repository source ID"
+            )
+        repository_id = int(self.repository_source_id)
+        if repository_id <= 0 or str(repository_id) != self.repository_source_id:
+            raise ValueError(
+                "repository_source_id must be canonical and positive"
+            )
+        if type(self.license_status) is not LicenseStatus:
+            raise ValueError(
+                "available result requires a LicenseStatus value"
+            )
+        if type(self.raw_snapshot) is not str:
+            raise ValueError("available result requires a raw snapshot")
+        expected_digest = hashlib.sha256(
+            self.raw_snapshot.encode("utf-8")
+        ).hexdigest()
+        if self.integrity_digest != expected_digest:
+            raise ValueError("integrity_digest does not match raw_snapshot")
+
+        parts = _identity_parts(self.request.repository_identity)
+        if parts is None:
+            raise ValueError("request repository identity is invalid")
+        normalized = _validated_license_payload_values(
+            self.raw_snapshot,
+            "{}/{}".format(*parts),
+        )
+        if normalized != (self.repository_source_id, self.license_status):
+            raise ValueError(
+                "raw_snapshot does not match normalized license metadata"
+            )
+
+    def _validate_nonavailable(self) -> None:
+        if (
+            self.repository_source_id is not None
+            or self.license_status is not None
+            or self.raw_snapshot is not None
+            or self.integrity_digest is not None
+            or self.response_etag is not None
+        ):
+            raise ValueError(
+                "nonavailable result cannot contain partial evidence"
+            )
+        if type(self.error) is not GitHubRepositoryMetadataCollectionError:
+            raise ValueError("nonavailable result requires an error")
+
+        category = self.error.category
+        if self.outcome is GitHubCollectionOutcome.UNAVAILABLE:
+            if (
+                self.response_status != 404
+                or category != "repository_not_publicly_available"
+                or self.error.retry_after is not None
+            ):
+                raise ValueError("unavailable result has contradictory fields")
+            return
+
+        if self.outcome is GitHubCollectionOutcome.FAILED_RETRYABLE:
+            if self.error.retryability != "retryable":
+                raise ValueError("retryable failure requires retryable error")
+        elif self.outcome is GitHubCollectionOutcome.FAILED_NONRETRYABLE:
+            if self.error.retryability not in (
+                "nonretryable",
+                "conditionally_retryable",
+            ):
+                raise ValueError(
+                    "nonretryable failure has invalid retryability"
+                )
+        else:
+            raise ValueError("unsupported nonavailable outcome")
+
+        if category == "github_rate_limited":
+            valid = (
+                self.outcome is GitHubCollectionOutcome.FAILED_RETRYABLE
+                and self.response_status in (403, 429)
+            )
+        elif category == "github_authorization_failed":
+            valid = (
+                self.outcome is GitHubCollectionOutcome.FAILED_NONRETRYABLE
+                and self.response_status in (401, 403)
+                and self.error.retry_after is None
+            )
+        elif category == "github_request_rejected":
+            valid = (
+                self.outcome is GitHubCollectionOutcome.FAILED_NONRETRYABLE
+                and self.response_status is not None
+                and 400 <= self.response_status <= 499
+                and self.response_status not in (401, 403, 404, 429)
+                and self.error.retry_after is None
+            )
+        elif category == "github_server_error":
+            valid = (
+                self.outcome is GitHubCollectionOutcome.FAILED_RETRYABLE
+                and self.response_status is not None
+                and 500 <= self.response_status <= 599
+            )
+        elif category in ("github_timeout", "github_connectivity_failure"):
+            valid = (
+                self.outcome is GitHubCollectionOutcome.FAILED_RETRYABLE
+                and self.response_status is None
+                and self.error.retry_after is None
+            )
+        elif category == "github_response_invalid":
+            valid = (
+                self.outcome is GitHubCollectionOutcome.FAILED_NONRETRYABLE
+                and self.response_status == 200
+                and self.error.retry_after is None
+            )
+        elif category == "github_unexpected_status":
+            valid = (
+                self.outcome is GitHubCollectionOutcome.FAILED_NONRETRYABLE
+                and self.response_status is not None
+                and not 400 <= self.response_status <= 599
+                and self.response_status != 200
+                and self.error.retry_after is None
+            )
+        else:
+            valid = False
+        if not valid:
+            raise ValueError("failure result does not match classification")
+
+
 def _error(
     category: str, retry_after: Optional[str] = None
 ) -> GitHubRepositoryMetadataCollectionError:
@@ -613,6 +834,162 @@ def collect_public_github_repository_metadata(
         source_identity=source_identity,
         repository_source_id=repository_source_id,
         archived=archived,
+        raw_snapshot=raw_snapshot,
+        integrity_digest=hashlib.sha256(response_body).hexdigest(),
+        response_status=200,
+        response_etag=response_etag,
+        error=None,
+    )
+
+
+def _license_failure_result(
+    request: GitHubRepositoryMetadataCollectionInput,
+    response_status: Optional[int],
+    category: str,
+    retry_after: Optional[str] = None,
+) -> GitHubLicenseStatusCollectionResult:
+    retryability, _ = _ERROR_DEFINITIONS[category]
+    outcome = (
+        GitHubCollectionOutcome.FAILED_RETRYABLE
+        if retryability == "retryable"
+        else GitHubCollectionOutcome.FAILED_NONRETRYABLE
+    )
+    return GitHubLicenseStatusCollectionResult(
+        request=request,
+        outcome=outcome,
+        evidence_kind=EvidenceKind.LICENSE_STATUS,
+        collector_version=_LICENSE_COLLECTOR_VERSION,
+        source_identity=_source_identity(request),
+        repository_source_id=None,
+        license_status=None,
+        raw_snapshot=None,
+        integrity_digest=None,
+        response_status=response_status,
+        response_etag=None,
+        error=_error(category, retry_after),
+    )
+
+
+def _license_unavailable_result(
+    request: GitHubRepositoryMetadataCollectionInput,
+) -> GitHubLicenseStatusCollectionResult:
+    return GitHubLicenseStatusCollectionResult(
+        request=request,
+        outcome=GitHubCollectionOutcome.UNAVAILABLE,
+        evidence_kind=EvidenceKind.LICENSE_STATUS,
+        collector_version=_LICENSE_COLLECTOR_VERSION,
+        source_identity=_source_identity(request),
+        repository_source_id=None,
+        license_status=None,
+        raw_snapshot=None,
+        integrity_digest=None,
+        response_status=404,
+        response_etag=None,
+        error=_error("repository_not_publicly_available"),
+    )
+
+
+def collect_public_github_license_status(
+    request: GitHubRepositoryMetadataCollectionInput,
+) -> GitHubLicenseStatusCollectionResult:
+    """Collect one transient public GitHub detected-license fact."""
+
+    if type(request) is not GitHubRepositoryMetadataCollectionInput:
+        raise ValueError(
+            "request must be a GitHubRepositoryMetadataCollectionInput"
+        )
+    source_identity = _source_identity(request)
+    try:
+        response_status, response_body, response_headers = (
+            _get_public_github_repository(source_identity)
+        )
+    except (socket.timeout, TimeoutError):
+        return _license_failure_result(request, None, "github_timeout")
+    except URLError as exc:
+        if isinstance(exc.reason, (socket.timeout, TimeoutError)):
+            return _license_failure_result(request, None, "github_timeout")
+        return _license_failure_result(
+            request, None, "github_connectivity_failure"
+        )
+    except ConnectionError:
+        return _license_failure_result(
+            request, None, "github_connectivity_failure"
+        )
+
+    retry_after = _safe_header_value(
+        _header_value(response_headers, "Retry-After")
+    )
+    if response_status == 404:
+        return _license_unavailable_result(request)
+
+    rate_limit_remaining = _header_value(
+        response_headers, "X-RateLimit-Remaining"
+    )
+    is_rate_limited = response_status == 429 or (
+        response_status == 403
+        and _safe_header_value(rate_limit_remaining) == "0"
+    )
+    if is_rate_limited:
+        return _license_failure_result(
+            request,
+            response_status,
+            "github_rate_limited",
+            retry_after,
+        )
+    if response_status in (401, 403):
+        return _license_failure_result(
+            request, response_status, "github_authorization_failed"
+        )
+    if type(response_status) is int and 400 <= response_status <= 499:
+        return _license_failure_result(
+            request, response_status, "github_request_rejected"
+        )
+    if type(response_status) is int and 500 <= response_status <= 599:
+        return _license_failure_result(
+            request,
+            response_status,
+            "github_server_error",
+            retry_after,
+        )
+    if response_status != 200:
+        return _license_failure_result(
+            request, response_status, "github_unexpected_status"
+        )
+
+    if type(response_body) is not bytes:
+        return _license_failure_result(
+            request, 200, "github_response_invalid"
+        )
+    try:
+        raw_snapshot = response_body.decode("utf-8")
+    except UnicodeDecodeError:
+        return _license_failure_result(
+            request, 200, "github_response_invalid"
+        )
+
+    parts = _identity_parts(request.repository_identity)
+    if parts is None:
+        raise ValueError("request repository identity is invalid")
+    normalized = _validated_license_payload_values(
+        raw_snapshot,
+        "{}/{}".format(*parts),
+    )
+    if normalized is None:
+        return _license_failure_result(
+            request, 200, "github_response_invalid"
+        )
+    repository_source_id, license_status = normalized
+    response_etag = _safe_header_value(
+        _header_value(response_headers, "ETag")
+    )
+    return GitHubLicenseStatusCollectionResult(
+        request=request,
+        outcome=GitHubCollectionOutcome.AVAILABLE,
+        evidence_kind=EvidenceKind.LICENSE_STATUS,
+        collector_version=_LICENSE_COLLECTOR_VERSION,
+        source_identity=source_identity,
+        repository_source_id=repository_source_id,
+        license_status=license_status,
         raw_snapshot=raw_snapshot,
         integrity_digest=hashlib.sha256(response_body).hexdigest(),
         response_status=200,

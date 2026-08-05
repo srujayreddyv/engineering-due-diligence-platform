@@ -41,15 +41,22 @@ approval are outside the four week scope.
 ## Implemented Runtime
 
 The current implementation is dependency-free Python library code using the
-standard library, including `urllib` for one public GitHub request and
-`sqlite3` for caller-supplied on-disk prototype persistence. Tests use
-`unittest` and real temporary SQLite files; collector tests patch the private
-transport seam and make no live network calls.
+standard library, including `urllib` for one public GitHub request per
+collector invocation and `sqlite3` for caller-supplied on-disk prototype
+persistence. Tests use `unittest` and real temporary SQLite files; collector
+tests patch the private transport seam and make no live network calls.
 
-Implemented boundaries include transient request validation, one public GitHub
-repository-metadata collector, deterministic evidence-to-policy evaluation,
-in-memory assessment result assembly, and SQLite persistence for validated
-requests and terminal repository-archived collection outcomes.
+Implemented boundaries include transient request validation, public GitHub
+repository-archived and license-status collection, deterministic
+evidence-to-policy evaluation, in-memory assessment result assembly, and
+SQLite persistence for validated requests and terminal outcomes from those two
+collectors. GitHub license presence means detected metadata only, not legal or
+compatibility analysis.
+
+SQLite schema version 2 stores repository-archived and license-status evidence.
+Exact schema version 1 databases migrate transactionally; complete successful
+GitHub responses remain separate from compact normalized evidence, and only
+close-and-reopen verified evidence is authoritative.
 
 FastAPI, Pydantic, PostgreSQL, model integration, OpenTelemetry, Docker Compose,
 and Grafana-compatible telemetry remain planned or deferred rather than

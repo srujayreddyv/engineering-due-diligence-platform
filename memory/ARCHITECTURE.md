@@ -64,9 +64,10 @@ The system must preserve:
 10. Audit timestamps
 
 The concrete prototype store is a caller-supplied on-disk SQLite database
-accessed directly through Python `sqlite3`. Schema version 1 currently covers
-only complete valid assessment requests and terminal public GitHub
-repository-archived collection outcomes.
+accessed directly through Python `sqlite3`. Schema version 2 covers complete
+valid assessment requests plus terminal public GitHub repository-archived and
+license-status collection outcomes. Exact schema version 1 databases migrate
+transactionally; unsupported versions or altered schemas fail closed.
 
 The persistence boundary uses four linked records: assessment request,
 collection attempt, complete GitHub source snapshot, and compact normalized
@@ -79,9 +80,11 @@ attempt.
 Available or unavailable evidence is authoritative only after the database is
 closed, reopened, and its exact fields, relationships, payload binding,
 digests, versions, normalization, and existing value invariants are verified.
-Exact replay is accepted without duplicates, conflicting replay is rejected,
-and incomplete or unverifiable writes fail closed. This boundary is not yet
-connected to deterministic evaluation or workflow orchestration.
+Repository-archived evidence uses the strict Boolean column; license-status
+evidence uses the strict `present` or `absent` column; unavailable evidence
+uses neither. Exact replay is accepted without duplicates, conflicting replay
+is rejected, and incomplete or unverifiable writes fail closed. This boundary
+is not yet connected to deterministic evaluation or workflow orchestration.
 
 ## Initial Deployment Shape
 
