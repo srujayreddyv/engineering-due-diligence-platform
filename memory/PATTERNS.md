@@ -24,6 +24,11 @@ Collectors do not calculate adoption recommendations.
 Raw responses or relevant source snapshots are preserved before derived
 calculations occur.
 
+For timestamp-bearing evidence, preserve the exact source timestamp text
+separately from the normalized aware datetime representation. Different offset
+representations are valid only when they denote the same UTC instant; exact
+replay still treats changed source text as changed source content.
+
 Every collection attempt records success, failure, timestamp, source, and
 freshness information.
 

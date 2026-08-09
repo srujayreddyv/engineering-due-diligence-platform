@@ -64,10 +64,12 @@ The system must preserve:
 10. Audit timestamps
 
 The concrete prototype store is a caller-supplied on-disk SQLite database
-accessed directly through Python `sqlite3`. Schema version 2 covers complete
-valid assessment requests plus terminal public GitHub repository-archived and
-license-status collection outcomes. Exact schema version 1 databases migrate
-transactionally; unsupported versions or altered schemas fail closed.
+accessed directly through Python `sqlite3`. Schema version 3 covers complete
+valid assessment requests plus terminal public GitHub repository-archived,
+license-status, and latest-commit timestamp collection outcomes. Exact schema
+version 2 databases migrate transactionally while preserving existing archived
+and license content; the existing exact version 1 migration may advance through
+version 2. Unsupported versions or altered schemas fail closed.
 
 The persistence boundary uses four linked records: assessment request,
 collection attempt, complete GitHub source snapshot, and compact normalized
@@ -81,10 +83,13 @@ Available or unavailable evidence is authoritative only after the database is
 closed, reopened, and its exact fields, relationships, payload binding,
 digests, versions, normalization, and existing value invariants are verified.
 Repository-archived evidence uses the strict Boolean column; license-status
-evidence uses the strict `present` or `absent` column; unavailable evidence
-uses neither. Exact replay is accepted without duplicates, conflicting replay
-is rejected, and incomplete or unverifiable writes fail closed. This boundary
-is not yet connected to deterministic evaluation or workflow orchestration.
+evidence uses the strict `present` or `absent` column; latest-commit evidence
+uses a strict aware timestamp representation; unavailable evidence uses no
+typed value column. Latest-commit source timestamp spelling is preserved
+separately from its normalized value, and both must denote the same UTC
+instant. Exact replay is accepted without duplicates, conflicting replay is
+rejected, and incomplete or unverifiable writes fail closed. This boundary is
+not yet connected to deterministic evaluation or workflow orchestration.
 
 ## Initial Deployment Shape
 

@@ -283,7 +283,7 @@ class SQLiteLicenseStatusPersistenceTests(unittest.TestCase):
             sql = connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name='evidence_records'"
             ).fetchone()[0]
-        self.assertEqual(version, 2)
+        self.assertEqual(version, 3)
         self.assertIn("archived_value", columns)
         self.assertIn("license_status_value", columns)
         self.assertIn("'present', 'absent'", sql)
@@ -295,7 +295,7 @@ class SQLiteLicenseStatusPersistenceTests(unittest.TestCase):
 
         with sqlite3.connect(self.database_path) as connection:
             self.assertEqual(
-                connection.execute("PRAGMA user_version").fetchone()[0], 2
+                connection.execute("PRAGMA user_version").fetchone()[0], 3
             )
             self.assertFalse(
                 connection.execute("PRAGMA foreign_key_check").fetchall()
@@ -361,7 +361,7 @@ class SQLiteLicenseStatusPersistenceTests(unittest.TestCase):
             expected_columns: dict[str, tuple[str, ...]],
             expected_sql: dict[str, str],
         ) -> None:
-            if expected_columns is persistence._EXPECTED_COLUMNS:
+            if expected_columns is persistence._EXPECTED_COLUMNS_V2:
                 raise SQLitePersistenceError("schema_incompatible")
             original_verify(connection, expected_columns, expected_sql)
 

@@ -47,16 +47,21 @@ persistence. Tests use `unittest` and real temporary SQLite files; collector
 tests patch the private transport seam and make no live network calls.
 
 Implemented boundaries include transient request validation, public GitHub
-repository-archived and license-status collection, deterministic
-evidence-to-policy evaluation, in-memory assessment result assembly, and
-SQLite persistence for validated requests and terminal outcomes from those two
-collectors. GitHub license presence means detected metadata only, not legal or
-compatibility analysis.
+repository-archived, license-status, and latest-commit timestamp collection,
+deterministic evidence-to-policy evaluation, in-memory assessment result
+assembly, and SQLite persistence for validated requests and terminal outcomes
+from those three collectors. GitHub license presence means detected metadata
+only, not legal or compatibility analysis.
 
-SQLite schema version 2 stores repository-archived and license-status evidence.
-Exact schema version 1 databases migrate transactionally; complete successful
-GitHub responses remain separate from compact normalized evidence, and only
-close-and-reopen verified evidence is authoritative.
+SQLite schema version 3 stores repository-archived, license-status, and
+latest-commit timestamp evidence in separate typed columns. Exact schema
+version 2 databases migrate transactionally while preserving archived and
+license content; the existing exact version 1 migration may advance through
+version 2. Complete successful GitHub responses remain separate from compact
+normalized evidence, and only close-and-reopen verified evidence is
+authoritative. For latest commits, the exact source timestamp spelling and the
+normalized timestamp representation are preserved separately and must denote
+the same UTC instant.
 
 FastAPI, Pydantic, PostgreSQL, model integration, OpenTelemetry, Docker Compose,
 and Grafana-compatible telemetry remain planned or deferred rather than

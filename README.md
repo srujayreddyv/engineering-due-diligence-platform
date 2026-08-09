@@ -1,11 +1,11 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** Days 1 through 8 established the engagement, domain and
-> failure models, deterministic evaluation slice, transient request and public
-> GitHub metadata boundaries, and durable repository-archived evidence. Day 9
-> adds strict public GitHub license-status collection and durable license
-> evidence through SQLite schema version 2. The boundary remains a narrow
-> library slice: latest-commit and security-policy collection, workflow
+> **Current status:** Days 1 through 9 established the engagement, domain and
+> failure models, deterministic evaluation slice, transient request validation,
+> public GitHub repository-archived and license-status collection, and durable
+> evidence for those facts. Day 10 adds strict latest-commit timestamp
+> collection and persistence through SQLite schema version 3. The boundary
+> remains a narrow library slice: security-policy collection, workflow
 > orchestration, evaluation integration, audit, reports, APIs, model use, and
 > human decisions remain unimplemented.
 
@@ -215,10 +215,43 @@ Completed on Day 9:
 Repository-archived and license-status evidence are now durable. Persistence
 is not yet connected to deterministic assessment evaluation.
 
+Completed on Day 10:
+
+* one strict transient collector performs exactly one unauthenticated request
+  to
+  `GET https://api.github.com/repos/<owner>/<repository>/commits?per_page=1`;
+* a valid one-element response uses only `commit.committer.date` to produce
+  `EvidenceKind.LATEST_COMMIT_TIMESTAMP`, while a valid empty array produces
+  unavailable evidence with the stable `repository_has_no_commits` category;
+  HTTP 409 remains a failed collection outcome;
+* the commit SHA, exact source timestamp spelling, parsed aware timestamp,
+  complete response text, matching SHA256 digest, and unrelated response
+  fields are preserved without coercion or reserialization;
+* the source timestamp and normalized evidence timestamp may use different
+  timezone offsets, but collection and reopened persistence require them to
+  identify the same UTC instant;
+* SQLite schema version 3 adds a typed latest-commit timestamp value, with exact
+  version 2 schemas migrated transactionally while preserving archived and
+  license requests, attempts, snapshots, evidence, digests, provenance,
+  versions, and timestamp representations;
+* available outcomes atomically persist the attempt, full commits response,
+  and compact timestamp `EvidenceRecord`; empty-array and 404 outcomes persist
+  the attempt and unavailable evidence, while other failures persist only the
+  attempt;
+* only evidence reconstructed after database close and reopen, source and
+  compact digest verification, commit binding, timestamp-instant comparison,
+  provenance verification, and existing constructor validation is
+  authoritative; and
+* exact replay is idempotent, conflicting replay changes no durable history,
+  and all 177 repository tests pass.
+
+Repository-archived, license-status, and latest-commit timestamp evidence are
+now durable. Persistence remains intentionally disconnected from deterministic
+assessment evaluation until the complete four-kind evidence set exists.
+
 Not yet implemented:
 
-* latest-commit timestamp and security-policy presence collectors and their
-  persistence slices;
+* security-policy presence collection and persistence;
 * workflow orchestration and deterministic evaluation integration for the
   complete four-kind durable evidence set;
 * audit history, assessment APIs, generated reports, and model integration;
@@ -230,8 +263,8 @@ Not yet implemented:
 | Week | Milestone | Status |
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
-| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy slice, result assembly, and archived/license SQLite persistence verified; workflow remains planned |
-| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | Repository archived and license status collection and persistence verified; latest-commit, security-policy, reporting, review, audit, and observability remain planned |
+| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy slice, result assembly, and archived/license/latest-commit SQLite persistence verified; workflow remains planned |
+| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | Repository archived, license status, and latest-commit collection and persistence verified; security-policy, reporting, review, audit, and observability remain planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
 Milestones describe intended sequencing and are not claims of completed
@@ -293,11 +326,11 @@ capability.
 ```
 
 The Python package now contains dependency-free transient request validation,
-public GitHub archived-status and license-status collection, deterministic
-evaluation and in-memory result assembly, plus concrete SQLite persistence for
-validated requests and those two evidence kinds. It is library code rather
-than an API or deployed application. Run its tests from the repository root
-with:
+public GitHub archived-status, license-status, and latest-commit collection,
+deterministic evaluation and in-memory result assembly, plus concrete SQLite
+persistence for validated requests and those three evidence kinds. It is
+library code rather than an API or deployed application. Run its tests from
+the repository root with:
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
@@ -314,6 +347,6 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_09_public_github_license_status_collection_and_persistence.md](plans/day_09_public_github_license_status_collection_and_persistence.md),
+[plans/day_10_public_github_latest_commit_collection_and_persistence.md](plans/day_10_public_github_latest_commit_collection_and_persistence.md),
 with its durable storage decision recorded in
 [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md).
