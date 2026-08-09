@@ -92,8 +92,17 @@ unavailable evidence uses no typed value column. Latest-commit source timestamp
 spelling is preserved separately from its normalized value, and both must
 denote the same UTC instant. Exact replay is accepted without duplicates,
 conflicting replay is rejected, and incomplete or unverifiable writes fail
-closed. All four evaluator-required evidence kinds are durable, but durable
-loading and deterministic evaluation integration remain unimplemented.
+closed.
+
+The durable evaluation read boundary opens only an existing exact schema-v4
+database in SQLite read-only and query-only modes. One read transaction
+reconstructs the valid request and exactly one `EvidenceRecord` for repository
+archived, license status, latest commit timestamp, and security policy presence
+in canonical evaluator order. Unavailable evidence satisfies completeness;
+missing or ambiguous kinds fail closed. Every selected record is reconstructed
+from its durable collection attempt and complete source material before it can
+enter the unchanged deterministic evaluator. Metrics and policy findings remain
+transient and no schema change is required for this integration.
 
 ## Initial Deployment Shape
 

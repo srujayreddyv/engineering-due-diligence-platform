@@ -59,6 +59,15 @@ For the concrete prototype persistence boundary:
    `PRAGMA user_version`, and roll back the complete migration on failure.
 10. Use explicit typed columns and constraints for each implemented evidence
     value rather than a generic unvalidated value store.
+11. Open aggregate evaluation reads through a separate strict read-only path;
+    never call schema creation or migration from a read boundary.
+12. Read the request, evidence rows, attempts, source snapshots, observations,
+    and integrity checks from one transaction snapshot, reconstruct every
+    record from durable source material, and return nothing unless the complete
+    canonical evidence set verifies.
+13. Treat unavailable evidence as a complete explicit fact, missing evidence
+    as incomplete, and multiple records for one required kind as ambiguous;
+    never guess which durable record is current.
 
 ## Metric Pattern
 

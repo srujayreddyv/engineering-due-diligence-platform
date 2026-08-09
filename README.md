@@ -1,13 +1,12 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** Days 1 through 10 established the engagement, domain and
-> failure models, deterministic evaluation slice, transient request validation,
-> and durable public GitHub repository-archived, license-status, and
-> latest-commit evidence. Day 11 adds effective security-policy-presence
-> collection and persistence through SQLite schema version 4. All four evidence
-> kinds required by the deterministic evaluator are now durable, but durable
-> evidence loading, evaluation integration, workflow orchestration, audit,
-> reports, APIs, model use, and human decisions remain unimplemented.
+> **Current status:** Days 1 through 11 established the engagement, domain and
+> failure models, request validation, all four public GitHub evidence
+> collectors, and their schema-v4 SQLite persistence. Day 12 adds strict
+> read-only loading of the complete durable evidence set and connects it to the
+> existing deterministic evaluator. Metrics and findings remain transient;
+> workflow orchestration, audit, reports, APIs, model use, and human decisions
+> remain unimplemented.
 
 ## Customer Problem
 
@@ -282,13 +281,37 @@ community-health `.github` repository. It establishes presence only; it does
 not assess policy quality, response capability, or security posture.
 
 Repository-archived, license-status, latest-commit timestamp, and
-security-policy-presence evidence are now durable. The next boundary must load
-the exact authoritative four-kind evidence set from SQLite and connect it to
-the existing deterministic evaluator without recollection or partial results.
+security-policy-presence evidence are durable. Day 12 now loads that exact
+authoritative four-kind set from SQLite and connects it to deterministic
+evaluation without recollection or partial results.
+
+Completed on Day 12:
+
+* frozen `VerifiedAssessmentEvidenceSet` groups one reconstructed valid request
+  with exactly four verified `EvidenceRecord` values in canonical evaluator
+  order;
+* `load_verified_assessment_evidence` opens only an existing exact schema-v4
+  SQLite database through read-only URI mode, enables query-only and foreign-
+  key checks, and performs all determining reads in one transaction snapshot;
+* repository archived, license status, latest commit timestamp, and security
+  policy presence must each have exactly one durable evidence row; unavailable
+  evidence counts as complete, missing kinds fail as
+  `evidence_set_incomplete`, and multiple rows for a kind fail as
+  `evidence_set_ambiguous`;
+* each record is reconstructed from its durable request, collection attempt,
+  complete source snapshots, ordered observations where applicable, and
+  compact evidence before digest, provenance, repository, relationship,
+  timestamp, version, and existing constructor checks pass;
+* `evaluate_persisted_assessment` loads the verified set once and calls the
+  unchanged deterministic evaluator once, returning no partial result on
+  failure and preserving the exact aware evaluation timestamp; and
+* 14 focused Day 12 tests pass, with all 219 repository tests passing.
+
+The read boundary never creates or migrates a database, and evaluation does
+not persist metrics or policy findings.
 
 Not yet implemented:
 
-* durable four-kind evidence loading and deterministic evaluation integration;
 * workflow orchestration around the durable evaluation boundary;
 * audit history, assessment APIs, generated reports, and model integration;
 * human decisions and review interfaces; and
@@ -299,8 +322,8 @@ Not yet implemented:
 | Week | Milestone | Status |
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
-| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy slice, result assembly, and all four required SQLite evidence kinds verified; workflow remains planned |
-| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub evidence collectors and persistence slices verified; durable evaluation integration, reporting, review, audit, and observability remain planned |
+| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy evaluation, result assembly, all four SQLite evidence kinds, and durable evaluation loading verified; workflow remains planned |
+| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors, persistence slices, and durable deterministic evaluation integration verified; reporting, review, audit, and observability remain planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
 Milestones describe intended sequencing and are not claims of completed
@@ -364,8 +387,10 @@ capability.
 The Python package now contains dependency-free transient request validation,
 public GitHub archived-status, license-status, latest-commit, and effective
 security-policy collection, deterministic evaluation and in-memory result
-assembly, plus concrete SQLite persistence for validated requests and all four
-evidence kinds. It is library code rather than an API or deployed application.
+assembly, concrete SQLite persistence for validated requests and all four
+evidence kinds, and strict read-only durable evaluation loading. Metrics and
+policy findings remain transient. It is library code rather than an API or
+deployed application.
 Run its tests from the repository root with:
 
 ```bash
@@ -383,6 +408,6 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_11_public_github_security_policy_collection_and_persistence.md](plans/day_11_public_github_security_policy_collection_and_persistence.md),
+[plans/day_12_durable_evidence_loading_and_evaluation.md](plans/day_12_durable_evidence_loading_and_evaluation.md),
 with its durable storage decision recorded in
 [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md).

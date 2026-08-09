@@ -6,7 +6,9 @@ import hashlib
 import json
 import os
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, Tuple, Union
 
 from .github import (
@@ -74,6 +76,12 @@ _ERROR_MESSAGES = {
         "The SQLite persistence schema is incompatible."
     ),
     "request_not_found": "The persisted assessment request was not found.",
+    "evidence_set_incomplete": (
+        "The persisted assessment evidence set is incomplete."
+    ),
+    "evidence_set_ambiguous": (
+        "The persisted assessment evidence set is ambiguous."
+    ),
     "conflicting_replay": (
         "The persistence identity is already bound to different content."
     ),
@@ -82,6 +90,13 @@ _ERROR_MESSAGES = {
         "The persisted content could not be verified."
     ),
 }
+
+_VERIFIED_EVIDENCE_KINDS = (
+    EvidenceKind.REPOSITORY_ARCHIVED,
+    EvidenceKind.LICENSE_STATUS,
+    EvidenceKind.LATEST_COMMIT_TIMESTAMP,
+    EvidenceKind.SECURITY_POLICY_PRESENT,
+)
 
 _REQUEST_COLUMNS = (
     "assessment_id",
@@ -826,6 +841,66 @@ class SQLitePersistenceError(Exception):
         super().__init__(message)
 
 
+@dataclass(frozen=True)
+class VerifiedAssessmentEvidenceSet:
+    """One valid durable request and its complete verified evidence set."""
+
+    validation_result: AssessmentRequestValidationResult
+    evidence_records: tuple[EvidenceRecord, ...]
+
+    def __post_init__(self) -> None:
+        validation_result = self.validation_result
+        if (
+            not isinstance(
+                validation_result, AssessmentRequestValidationResult
+            )
+            or validation_result.validation_status != "valid"
+            or validation_result.context is None
+            or validation_result.normalized_repository_identity is None
+            or validation_result.validation_errors
+        ):
+            raise ValueError(
+                "validation_result must be one complete valid request"
+            )
+        if (
+            type(self.evidence_records) is not tuple
+            or not all(
+                type(record) is EvidenceRecord
+                for record in self.evidence_records
+            )
+            or tuple(record.evidence_kind for record in self.evidence_records)
+            != _VERIFIED_EVIDENCE_KINDS
+        ):
+            raise ValueError(
+                "evidence_records must contain the four canonical kinds"
+            )
+        if validate_assessment_request(
+            validation_result.request
+        ) != validation_result:
+            raise ValueError(
+                "validation_result must reconstruct from its request"
+            )
+        assessment_id = validation_result.request.assessment_id
+        if any(
+            record.assessment_id != assessment_id
+            for record in self.evidence_records
+        ):
+            raise ValueError(
+                "evidence_records must belong to the validated request"
+            )
+        if len(
+            {record.evidence_id for record in self.evidence_records}
+        ) != len(self.evidence_records) or len(
+            {
+                record.collection_attempt_id
+                for record in self.evidence_records
+            }
+        ) != len(self.evidence_records):
+            raise ValueError(
+                "evidence_records must have unique evidence and attempt IDs"
+            )
+
+
 def _error(category: str) -> SQLitePersistenceError:
     return SQLitePersistenceError(category)
 
@@ -883,6 +958,44 @@ def _connect(filename: str) -> sqlite3.Connection:
                 connection.close()
             except sqlite3.Error:
                 pass
+        raise _error("database_unavailable") from None
+
+
+def _connect_read_only_v4(filename: str) -> sqlite3.Connection:
+    connection: Optional[sqlite3.Connection] = None
+    try:
+        database_uri = Path(filename).absolute().as_uri() + "?mode=ro"
+        connection = sqlite3.connect(database_uri, uri=True)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA query_only = ON")
+        foreign_keys = connection.execute(
+            "PRAGMA foreign_keys"
+        ).fetchone()[0]
+        query_only = connection.execute("PRAGMA query_only").fetchone()[0]
+        database_file = connection.execute(
+            "PRAGMA database_list"
+        ).fetchone()[2]
+        if not database_file or foreign_keys != 1 or query_only != 1:
+            raise _error("database_unavailable")
+        connection.execute("BEGIN")
+        if connection.execute("PRAGMA user_version").fetchone()[0] != 4:
+            raise _error("schema_incompatible")
+        _verify_schema_definition(
+            connection, _EXPECTED_COLUMNS, _EXPECTED_SCHEMA_SQL
+        )
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise _error("verification_failed")
+        return connection
+    except SQLitePersistenceError:
+        if connection is not None:
+            _rollback_safely(connection)
+            _close_safely(connection)
+        raise
+    except (OSError, ValueError, sqlite3.Error):
+        if connection is not None:
+            _rollback_safely(connection)
+            _close_safely(connection)
         raise _error("database_unavailable") from None
 
 
@@ -3830,3 +3943,216 @@ def persist_github_security_policy_presence_collection(
     ):
         raise _error("conflicting_replay" if replay else "verification_failed")
     return stored_evidence
+
+
+def _verified_evidence_from_connection(
+    connection: sqlite3.Connection,
+    evidence_row: sqlite3.Row,
+    validation_result: AssessmentRequestValidationResult,
+) -> EvidenceRecord:
+    evidence_kind = EvidenceKind(evidence_row["evidence_kind"])
+    attempt_rows = connection.execute(
+        "SELECT {} FROM collection_attempts "
+        "WHERE collection_attempt_id = ?".format(
+            ", ".join(_ATTEMPT_COLUMNS)
+        ),
+        (evidence_row["collection_attempt_id"],),
+    ).fetchall()
+    if len(attempt_rows) != 1:
+        raise ValueError("evidence collection attempt is not unique")
+    attempt = attempt_rows[0]
+    if (
+        attempt["assessment_id"]
+        != validation_result.request.assessment_id
+        or attempt["assessment_id"] != evidence_row["assessment_id"]
+        or attempt["evidence_kind"] != evidence_kind.value
+        or attempt["repository_identity"]
+        != validation_result.normalized_repository_identity
+    ):
+        raise ValueError("evidence relationship does not match request")
+
+    snapshot_rows = tuple(
+        connection.execute(
+            "SELECT {} FROM github_source_snapshots "
+            "WHERE collection_attempt_id = ? ORDER BY source_snapshot_id".format(
+                ", ".join(_SOURCE_SNAPSHOT_COLUMNS)
+            ),
+            (attempt["collection_attempt_id"],),
+        ).fetchall()
+    )
+    observation_rows = tuple(
+        connection.execute(
+            "SELECT {} FROM github_source_observations "
+            "WHERE collection_attempt_id = ? ORDER BY request_sequence".format(
+                ", ".join(_SOURCE_OBSERVATION_COLUMNS)
+            ),
+            (attempt["collection_attempt_id"],),
+        ).fetchall()
+    )
+    evidence_rows = tuple(
+        connection.execute(
+            "SELECT {} FROM evidence_records "
+            "WHERE collection_attempt_id = ?".format(
+                ", ".join(_EVIDENCE_COLUMNS)
+            ),
+            (attempt["collection_attempt_id"],),
+        ).fetchall()
+    )
+    if (
+        len(evidence_rows) != 1
+        or _row_values(evidence_rows[0], _EVIDENCE_COLUMNS)
+        != _row_values(evidence_row, _EVIDENCE_COLUMNS)
+    ):
+        raise ValueError("evidence row does not uniquely match its attempt")
+
+    if evidence_kind is EvidenceKind.REPOSITORY_ARCHIVED:
+        if observation_rows:
+            raise ValueError("archived evidence has unexpected observations")
+        reconstructed = _collection_result_from_rows(
+            attempt, snapshot_rows
+        )
+        expected_attempt = _attempt_values(reconstructed)
+        expected_evidence = _expected_evidence(reconstructed)
+        evidence_values = _evidence_values
+        expected_snapshots = (
+            (_source_snapshot_values(reconstructed),)
+            if reconstructed.outcome is GitHubCollectionOutcome.AVAILABLE
+            else ()
+        )
+    elif evidence_kind is EvidenceKind.LICENSE_STATUS:
+        if observation_rows:
+            raise ValueError("license evidence has unexpected observations")
+        reconstructed = _license_collection_result_from_rows(
+            attempt, snapshot_rows
+        )
+        expected_attempt = _attempt_values(reconstructed)
+        expected_evidence = _license_expected_evidence(reconstructed)
+        evidence_values = _license_evidence_values
+        expected_snapshots = (
+            (_license_source_snapshot_values(reconstructed),)
+            if reconstructed.outcome is GitHubCollectionOutcome.AVAILABLE
+            else ()
+        )
+    elif evidence_kind is EvidenceKind.LATEST_COMMIT_TIMESTAMP:
+        if observation_rows:
+            raise ValueError(
+                "latest commit evidence has unexpected observations"
+            )
+        reconstructed = _latest_commit_collection_result_from_rows(
+            attempt, snapshot_rows, evidence_rows
+        )
+        expected_attempt = _attempt_values(reconstructed)
+        expected_evidence = _latest_commit_expected_evidence(reconstructed)
+        evidence_values = _latest_commit_evidence_values
+        expected_snapshots = (
+            (_latest_commit_source_snapshot_values(reconstructed),)
+            if reconstructed.outcome is GitHubCollectionOutcome.AVAILABLE
+            else ()
+        )
+    elif evidence_kind is EvidenceKind.SECURITY_POLICY_PRESENT:
+        reconstructed = _security_policy_collection_result_from_rows(
+            attempt, observation_rows, snapshot_rows
+        )
+        expected_attempt = _security_policy_attempt_values(reconstructed)
+        expected_evidence = _security_policy_expected_evidence(reconstructed)
+        evidence_values = _security_policy_evidence_values
+        expected_snapshots = tuple(
+            _security_policy_snapshot_values(
+                reconstructed.request, observation
+            )
+            for observation in reconstructed.observations
+            if observation.raw_response_bytes is not None
+        )
+        if len(reconstructed.observations) != len(observation_rows):
+            raise ValueError("security observations do not reconstruct")
+        for observation, row in zip(
+            reconstructed.observations, observation_rows
+        ):
+            if _security_policy_observation_values(
+                reconstructed.request, observation
+            ) != _row_values(row, _SOURCE_OBSERVATION_COLUMNS):
+                raise ValueError("security observation does not reconstruct")
+    else:
+        raise ValueError("unsupported evidence kind")
+
+    if expected_attempt != _row_values(attempt, _ATTEMPT_COLUMNS):
+        raise ValueError("collection attempt does not reconstruct exactly")
+    if expected_evidence is None:
+        raise ValueError("selected attempt does not produce evidence")
+    evidence = _evidence_from_row(evidence_rows[0])
+    if (
+        evidence != expected_evidence
+        or evidence_values(evidence)
+        != _row_values(evidence_rows[0], _EVIDENCE_COLUMNS)
+    ):
+        raise ValueError("evidence does not reconstruct exactly")
+
+    actual_snapshots = tuple(
+        _row_values(row, _SOURCE_SNAPSHOT_COLUMNS)
+        for row in snapshot_rows
+    )
+    if actual_snapshots != tuple(sorted(expected_snapshots)):
+        raise ValueError("source snapshots do not reconstruct exactly")
+    return evidence
+
+
+def load_verified_assessment_evidence(
+    database_path: _DatabasePath,
+    assessment_id: str,
+) -> VerifiedAssessmentEvidenceSet:
+    """Load one complete authoritative evidence set without modifying SQLite."""
+
+    filename = _database_filename(database_path)
+    if (
+        type(assessment_id) is not str
+        or not assessment_id
+        or assessment_id != assessment_id.strip()
+    ):
+        raise _error("invalid_input")
+
+    connection = _connect_read_only_v4(filename)
+    try:
+        _, validation_result = _read_request(connection, assessment_id)
+        evidence_rows = tuple(
+            connection.execute(
+                "SELECT {} FROM evidence_records "
+                "WHERE assessment_id = ? "
+                "ORDER BY evidence_kind, attempt_number, evidence_id".format(
+                    ", ".join(_EVIDENCE_COLUMNS)
+                ),
+                (assessment_id,),
+            ).fetchall()
+        )
+        rows_by_kind = {kind: [] for kind in _VERIFIED_EVIDENCE_KINDS}
+        for row in evidence_rows:
+            kind = EvidenceKind(row["evidence_kind"])
+            if kind not in rows_by_kind:
+                raise ValueError("unsupported evidence kind")
+            rows_by_kind[kind].append(row)
+        if any(len(rows_by_kind[kind]) > 1 for kind in _VERIFIED_EVIDENCE_KINDS):
+            raise _error("evidence_set_ambiguous")
+        if any(not rows_by_kind[kind] for kind in _VERIFIED_EVIDENCE_KINDS):
+            raise _error("evidence_set_incomplete")
+
+        verified_records = tuple(
+            _verified_evidence_from_connection(
+                connection, rows_by_kind[kind][0], validation_result
+            )
+            for kind in _VERIFIED_EVIDENCE_KINDS
+        )
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise ValueError("foreign key verification failed")
+        verified_set = VerifiedAssessmentEvidenceSet(
+            validation_result=validation_result,
+            evidence_records=verified_records,
+        )
+    except SQLitePersistenceError:
+        raise
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+        raise _error("verification_failed") from None
+    except sqlite3.Error:
+        raise _error("verification_failed") from None
+    finally:
+        _rollback_safely(connection)
+        _close_safely(connection)
+    return verified_set

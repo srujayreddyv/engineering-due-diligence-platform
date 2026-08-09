@@ -13,6 +13,7 @@ from .models import (
     MetricResult,
     PolicyFinding,
 )
+from .persistence import load_verified_assessment_evidence
 
 
 @dataclass(frozen=True)
@@ -49,4 +50,24 @@ def evaluate_assessment(
         metric_results=metric_results,
         policy_findings=policy_findings,
         evaluated_at=evaluated_at,
+    )
+
+
+def evaluate_persisted_assessment(
+    database_path,
+    assessment_id,
+    evaluated_at,
+) -> DeterministicAssessmentResult:
+    """Evaluate one complete evidence set verified from durable SQLite."""
+
+    verified = load_verified_assessment_evidence(
+        database_path, assessment_id
+    )
+    context = verified.validation_result.context
+    if context is None:
+        raise ValueError("verified assessment evidence requires a context")
+    return evaluate_assessment(
+        context,
+        verified.evidence_records,
+        evaluated_at,
     )

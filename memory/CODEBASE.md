@@ -50,10 +50,13 @@ Implemented boundaries include transient request validation, public GitHub
 repository-archived, license-status, latest-commit timestamp, and effective
 security-policy-presence collection, deterministic evidence-to-policy
 evaluation, in-memory assessment result assembly, and SQLite persistence for
-validated requests and terminal outcomes from all four collectors. GitHub
-license presence means detected metadata only, not legal or compatibility
-analysis. Security-policy presence includes repository-local `SECURITY.md`
-files and inherited defaults from the owner's public `.github` repository.
+validated requests and terminal outcomes from all four collectors. A strict
+read-only SQLite loader reconstructs the complete four-kind authoritative
+evidence set and passes it to the unchanged deterministic evaluator; metrics
+and policy findings remain transient. GitHub license presence means detected
+metadata only, not legal or compatibility analysis. Security-policy presence
+includes repository-local `SECURITY.md` files and inherited defaults from the
+owner's public `.github` repository.
 
 SQLite schema version 4 stores all four evidence kinds in separate typed
 columns and adds ordered GitHub source observations plus multiple source
@@ -64,7 +67,10 @@ supported. Complete HTTP 200 response bytes remain separate from compact
 normalized evidence, and only close-and-reopen verified evidence is
 authoritative. For latest commits, the exact source timestamp spelling and the
 normalized timestamp representation are preserved separately and must denote
-the same UTC instant.
+the same UTC instant. Durable evaluation loading accepts only an existing exact
+schema-v4 database, reads one consistent transaction snapshot, requires exactly
+one record for each evaluator-required kind, and fails closed on missing,
+ambiguous, corrupt, or mismatched evidence.
 
 FastAPI, Pydantic, PostgreSQL, model integration, OpenTelemetry, Docker Compose,
 and Grafana-compatible telemetry remain planned or deferred rather than
