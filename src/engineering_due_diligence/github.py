@@ -20,6 +20,9 @@ from .models import EvidenceKind, LicenseStatus
 _COLLECTOR_VERSION = "public-github-repository-metadata.v1"
 _LICENSE_COLLECTOR_VERSION = "public-github-license-status.v1"
 _LATEST_COMMIT_COLLECTOR_VERSION = "public-github-latest-commit.v1"
+_SECURITY_POLICY_COLLECTOR_VERSION = (
+    "public-github-security-policy-presence.v1"
+)
 _HTTP_TIMEOUT_SECONDS = 10.0
 _CANONICAL_IDENTITY_PATTERN = re.compile(
     r"github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)\Z"
@@ -28,6 +31,7 @@ _FULL_NAME_PATTERN = re.compile(
     r"([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)\Z"
 )
 _COMMIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
+_GIT_OBJECT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 _SAFE_RESPONSE_HEADERS = (
     "ETag",
     "Retry-After",
@@ -148,6 +152,48 @@ def _latest_commit_source_identity(
     request: "GitHubRepositoryMetadataCollectionInput",
 ) -> str:
     return _source_identity(request) + "/commits?per_page=1"
+
+
+def _security_policy_candidate_specs(
+    request: "GitHubRepositoryMetadataCollectionInput",
+) -> Tuple[Tuple[str, str, str, str], ...]:
+    parts = _identity_parts(request.repository_identity)
+    if parts is None:
+        raise ValueError("repository_identity must be canonical")
+    owner, repository = parts
+    paths = (
+        ("dotgithub", ".github/SECURITY.md"),
+        ("root", "SECURITY.md"),
+        ("docs", "docs/SECURITY.md"),
+    )
+    candidates = []
+    seen = set()
+    for scope, source_repository in (
+        ("repository_local", repository),
+        ("inherited_default", ".github"),
+    ):
+        for location, path in paths:
+            source_identity = (
+                "https://api.github.com/repos/{}/{}/contents/{}".format(
+                    owner, source_repository, path
+                )
+            )
+            comparison_key = source_identity.casefold()
+            if comparison_key in seen:
+                continue
+            seen.add(comparison_key)
+            candidates.append(
+                (
+                    "{}_{}".format(
+                        "target" if scope == "repository_local" else "default",
+                        location,
+                    ),
+                    scope,
+                    path,
+                    source_identity,
+                )
+            )
+    return tuple(candidates)
 
 
 def _safe_header_value(value: object) -> Optional[str]:
@@ -336,6 +382,106 @@ def _validated_latest_commit_payload_values(
     if not is_aware:
         return None
     return commit_sha, latest_commit_at, source_timestamp
+
+
+def _validated_repository_identity_payload_values(
+    raw_snapshot: object,
+    requested_full_name: str,
+) -> Optional[str]:
+    if type(raw_snapshot) is not str:
+        return None
+    try:
+        payload = json.loads(
+            raw_snapshot,
+            parse_constant=_reject_json_constant,
+        )
+    except (TypeError, ValueError):
+        return None
+    if type(payload) is not dict:
+        return None
+    repository_id = payload.get("id")
+    full_name = payload.get("full_name")
+    if type(repository_id) is not int or repository_id <= 0:
+        return None
+    if _full_name_parts(full_name) is None:
+        return None
+    if full_name.casefold() != requested_full_name.casefold():
+        return None
+    return str(repository_id)
+
+
+def _validated_security_policy_payload_values(
+    raw_snapshot: object,
+    *,
+    expected_source_identity: str,
+    expected_path: str,
+) -> Optional[str]:
+    if type(raw_snapshot) is not str:
+        return None
+    try:
+        payload = json.loads(
+            raw_snapshot,
+            parse_constant=_reject_json_constant,
+        )
+    except (TypeError, ValueError):
+        return None
+    if type(payload) is not dict:
+        return None
+    policy_type = payload.get("type")
+    name = payload.get("name")
+    path = payload.get("path")
+    size = payload.get("size")
+    blob_sha = payload.get("sha")
+    source_url = payload.get("url")
+    if (
+        policy_type != "file"
+        or name != "SECURITY.md"
+        or path != expected_path
+        or type(size) is not int
+        or size < 0
+        or type(blob_sha) is not str
+        or _GIT_OBJECT_SHA_PATTERN.fullmatch(blob_sha) is None
+        or not _security_policy_source_url_matches(
+            source_url, expected_source_identity
+        )
+    ):
+        return None
+    return blob_sha
+
+
+def _security_policy_source_url_matches(
+    source_url: object,
+    expected_source_identity: str,
+) -> bool:
+    if type(source_url) is not str:
+        return False
+    try:
+        returned = urlsplit(source_url)
+        expected = urlsplit(expected_source_identity)
+    except ValueError:
+        return False
+    if (
+        returned.scheme != "https"
+        or returned.netloc != "api.github.com"
+        or returned.query
+        or returned.fragment
+        or expected.scheme != "https"
+        or expected.netloc != "api.github.com"
+        or expected.query
+        or expected.fragment
+    ):
+        return False
+    returned_parts = returned.path.split("/", 5)
+    expected_parts = expected.path.split("/", 5)
+    return (
+        len(returned_parts) == 6
+        and len(expected_parts) == 6
+        and returned_parts[:2] == ["", "repos"]
+        and expected_parts[:2] == ["", "repos"]
+        and returned_parts[2].casefold() == expected_parts[2].casefold()
+        and returned_parts[3].casefold() == expected_parts[3].casefold()
+        and returned_parts[4:] == expected_parts[4:]
+    )
 
 
 @dataclass(frozen=True)
@@ -955,6 +1101,300 @@ class GitHubLatestCommitCollectionResult:
             raise ValueError("failure result does not match classification")
 
 
+_SECURITY_OBSERVATION_ROLES = (
+    "repository",
+    "target_dotgithub",
+    "target_root",
+    "target_docs",
+    "default_dotgithub",
+    "default_root",
+    "default_docs",
+)
+
+
+def _security_observation_error_matches(
+    response_status: Optional[int],
+    error: GitHubRepositoryMetadataCollectionError,
+) -> bool:
+    category = error.category
+    if category == "github_rate_limited":
+        return response_status in (403, 429)
+    if category == "github_authorization_failed":
+        return response_status in (401, 403) and error.retry_after is None
+    if category == "github_request_rejected":
+        return (
+            response_status is not None
+            and 400 <= response_status <= 499
+            and response_status not in (401, 403, 404, 429)
+            and error.retry_after is None
+        )
+    if category == "github_server_error":
+        return response_status is not None and 500 <= response_status <= 599
+    if category in ("github_timeout", "github_connectivity_failure"):
+        return response_status is None and error.retry_after is None
+    if category == "github_response_invalid":
+        return response_status == 200 and error.retry_after is None
+    if category == "github_unexpected_status":
+        return (
+            response_status is not None
+            and response_status != 200
+            and not 400 <= response_status <= 599
+            and error.retry_after is None
+        )
+    return False
+
+
+@dataclass(frozen=True)
+class GitHubSecurityPolicySourceObservation:
+    """One ordered safe source observation in a policy search."""
+
+    sequence: int
+    role: str
+    source_identity: str
+    response_status: Optional[int]
+    source_object_id: Optional[str]
+    raw_response_bytes: Optional[bytes]
+    raw_snapshot: Optional[str]
+    integrity_digest: Optional[str]
+    response_etag: Optional[str]
+    error: Optional[GitHubRepositoryMetadataCollectionError]
+
+    def __post_init__(self) -> None:
+        if type(self.sequence) is not int or self.sequence <= 0:
+            raise ValueError("sequence must be a positive integer")
+        if self.role not in _SECURITY_OBSERVATION_ROLES:
+            raise ValueError("role must be a supported security source role")
+        _require_unpadded_text("source_identity", self.source_identity)
+        if self.response_status is not None and (
+            type(self.response_status) is not int
+            or not 100 <= self.response_status <= 599
+        ):
+            raise ValueError("response_status must be a valid HTTP status")
+        if self.response_etag is not None:
+            if self.response_status != 200:
+                raise ValueError("response_etag is valid only for HTTP 200")
+            if _safe_header_value(self.response_etag) != self.response_etag:
+                raise ValueError("response_etag must be a safe header value")
+        if self.raw_response_bytes is not None:
+            if type(self.raw_response_bytes) is not bytes:
+                raise ValueError("raw_response_bytes must be bytes")
+            expected_digest = hashlib.sha256(
+                self.raw_response_bytes
+            ).hexdigest()
+            if self.integrity_digest != expected_digest:
+                raise ValueError(
+                    "integrity_digest does not match raw response bytes"
+                )
+            if self.response_status != 200:
+                raise ValueError(
+                    "raw response bytes are valid only for HTTP 200"
+                )
+        elif self.integrity_digest is not None:
+            raise ValueError("digest requires raw response bytes")
+        decoded_snapshot = None
+        if self.raw_response_bytes is not None:
+            try:
+                decoded_snapshot = self.raw_response_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                pass
+        if self.raw_snapshot != decoded_snapshot:
+            raise ValueError(
+                "raw_snapshot must exactly decode raw_response_bytes"
+            )
+        if self.source_object_id is not None:
+            _require_unpadded_text("source_object_id", self.source_object_id)
+            if self.response_status != 200 or self.raw_snapshot is None:
+                raise ValueError(
+                    "source_object_id requires a successful snapshot"
+                )
+        if self.error is not None:
+            if type(self.error) is not GitHubRepositoryMetadataCollectionError:
+                raise ValueError("error has an invalid type")
+            if self.source_object_id is not None:
+                raise ValueError("failed observation cannot have a source ID")
+            if self.response_etag is not None:
+                raise ValueError("failed observation cannot have an ETag")
+            if not _security_observation_error_matches(
+                self.response_status, self.error
+            ):
+                raise ValueError(
+                    "observation error does not match response status"
+                )
+        elif self.response_status not in (200, 404):
+            raise ValueError(
+                "nonfailure observation must be HTTP 200 or HTTP 404"
+            )
+
+
+@dataclass(frozen=True)
+class GitHubSecurityPolicyPresenceCollectionResult:
+    """Complete transient output of one effective-policy search."""
+
+    request: GitHubRepositoryMetadataCollectionInput
+    outcome: GitHubCollectionOutcome
+    evidence_kind: EvidenceKind
+    collector_version: str
+    source_identity: str
+    repository_source_id: Optional[str]
+    security_policy_present: Optional[bool]
+    policy_scope: Optional[str]
+    policy_path: Optional[str]
+    policy_blob_sha: Optional[str]
+    observations: Tuple[GitHubSecurityPolicySourceObservation, ...]
+    response_status: Optional[int]
+    error: Optional[GitHubRepositoryMetadataCollectionError]
+
+    def __post_init__(self) -> None:
+        if type(self.request) is not GitHubRepositoryMetadataCollectionInput:
+            raise ValueError(
+                "request must be a GitHubRepositoryMetadataCollectionInput"
+            )
+        if type(self.outcome) is not GitHubCollectionOutcome:
+            raise ValueError("outcome must be a GitHubCollectionOutcome")
+        if self.evidence_kind is not EvidenceKind.SECURITY_POLICY_PRESENT:
+            raise ValueError("evidence_kind must be security_policy_present")
+        if self.collector_version != _SECURITY_POLICY_COLLECTOR_VERSION:
+            raise ValueError("collector_version is not supported")
+        if self.source_identity != _source_identity(self.request):
+            raise ValueError("source_identity does not match request")
+        if type(self.observations) is not tuple or not self.observations:
+            raise ValueError("observations must be a nonempty tuple")
+        for sequence, observation in enumerate(self.observations, start=1):
+            if (
+                type(observation) is not GitHubSecurityPolicySourceObservation
+                or observation.sequence != sequence
+            ):
+                raise ValueError(
+                    "observations must be typed and contiguously ordered"
+                )
+        _validate_security_policy_result(self)
+
+
+def _validate_security_failure_summary(
+    result: GitHubSecurityPolicyPresenceCollectionResult,
+    observation: GitHubSecurityPolicySourceObservation,
+) -> None:
+    if observation.error is None or result.error != observation.error:
+        raise ValueError("failure summary must match terminal observation")
+    if result.response_status != observation.response_status:
+        raise ValueError("failure status must match terminal observation")
+    expected_outcome = (
+        GitHubCollectionOutcome.FAILED_RETRYABLE
+        if observation.error.retryability == "retryable"
+        else GitHubCollectionOutcome.FAILED_NONRETRYABLE
+    )
+    if result.outcome is not expected_outcome:
+        raise ValueError("failure outcome does not match terminal error")
+    if (
+        result.security_policy_present is not None
+        or result.policy_scope is not None
+        or result.policy_path is not None
+        or result.policy_blob_sha is not None
+    ):
+        raise ValueError("failed search cannot contain policy evidence")
+
+
+def _validate_security_policy_result(
+    result: GitHubSecurityPolicyPresenceCollectionResult,
+) -> None:
+    parts = _identity_parts(result.request.repository_identity)
+    if parts is None:
+        raise ValueError("request repository identity is invalid")
+    requested_full_name = "{}/{}".format(*parts)
+    repository_observation = result.observations[0]
+    if (
+        repository_observation.role != "repository"
+        or repository_observation.source_identity != result.source_identity
+    ):
+        raise ValueError("first observation must verify the repository")
+    if repository_observation.error is not None:
+        if len(result.observations) != 1:
+            raise ValueError("search must stop after repository failure")
+        if result.repository_source_id is not None:
+            raise ValueError("repository failure cannot contain source ID")
+        _validate_security_failure_summary(result, repository_observation)
+        return
+    if repository_observation.response_status == 404:
+        if (
+            len(result.observations) != 1
+            or result.outcome is not GitHubCollectionOutcome.UNAVAILABLE
+            or result.response_status != 404
+            or result.error != _error("repository_not_publicly_available")
+            or result.repository_source_id is not None
+            or result.security_policy_present is not None
+            or result.policy_scope is not None
+            or result.policy_path is not None
+            or result.policy_blob_sha is not None
+        ):
+            raise ValueError("repository 404 result is contradictory")
+        return
+    if repository_observation.response_status != 200:
+        raise ValueError("repository observation is not terminally classified")
+    repository_source_id = _validated_repository_identity_payload_values(
+        repository_observation.raw_snapshot,
+        requested_full_name,
+    )
+    if (
+        repository_source_id is None
+        or repository_observation.source_object_id != repository_source_id
+        or result.repository_source_id != repository_source_id
+    ):
+        raise ValueError("repository observation is not strictly bound")
+
+    candidates = _security_policy_candidate_specs(result.request)
+    candidate_observations = result.observations[1:]
+    if len(candidate_observations) > len(candidates):
+        raise ValueError("too many policy observations")
+    for index, observation in enumerate(candidate_observations):
+        role, scope, path, source_identity = candidates[index]
+        if (
+            observation.role != role
+            or observation.source_identity != source_identity
+        ):
+            raise ValueError("policy observations do not follow precedence")
+        if observation.error is not None:
+            if index != len(candidate_observations) - 1:
+                raise ValueError("search must stop after a failed probe")
+            _validate_security_failure_summary(result, observation)
+            return
+        if observation.response_status == 404:
+            continue
+        if observation.response_status != 200:
+            raise ValueError("policy observation is not terminally classified")
+        blob_sha = _validated_security_policy_payload_values(
+            observation.raw_snapshot,
+            expected_source_identity=source_identity,
+            expected_path=path,
+        )
+        if (
+            blob_sha is None
+            or observation.source_object_id != blob_sha
+            or index != len(candidate_observations) - 1
+            or result.outcome is not GitHubCollectionOutcome.AVAILABLE
+            or result.security_policy_present is not True
+            or result.policy_scope != scope
+            or result.policy_path != path
+            or result.policy_blob_sha != blob_sha
+            or result.response_status != 200
+            or result.error is not None
+        ):
+            raise ValueError("available policy result is contradictory")
+        return
+
+    if len(candidate_observations) != len(candidates):
+        raise ValueError("incomplete policy search is not a terminal absence")
+    if (
+        result.outcome is not GitHubCollectionOutcome.AVAILABLE
+        or result.security_policy_present is not False
+        or result.policy_scope is not None
+        or result.policy_path is not None
+        or result.policy_blob_sha is not None
+        or result.response_status != 404
+        or result.error is not None
+    ):
+        raise ValueError("complete absent-policy result is contradictory")
+
+
 def _error(
     category: str, retry_after: Optional[str] = None
 ) -> GitHubRepositoryMetadataCollectionError:
@@ -1448,6 +1888,300 @@ def collect_public_github_latest_commit(
         integrity_digest=hashlib.sha256(response_body).hexdigest(),
         response_status=200,
         response_etag=response_etag,
+        error=None,
+    )
+
+
+def _security_policy_observation(
+    request: GitHubRepositoryMetadataCollectionInput,
+    *,
+    sequence: int,
+    role: str,
+    source_identity: str,
+    expected_path: Optional[str] = None,
+) -> GitHubSecurityPolicySourceObservation:
+    try:
+        response_status, response_body, response_headers = (
+            _get_public_github_repository(source_identity)
+        )
+    except (socket.timeout, TimeoutError):
+        return GitHubSecurityPolicySourceObservation(
+            sequence=sequence,
+            role=role,
+            source_identity=source_identity,
+            response_status=None,
+            source_object_id=None,
+            raw_response_bytes=None,
+            raw_snapshot=None,
+            integrity_digest=None,
+            response_etag=None,
+            error=_error("github_timeout"),
+        )
+    except URLError as exc:
+        category = (
+            "github_timeout"
+            if isinstance(exc.reason, (socket.timeout, TimeoutError))
+            else "github_connectivity_failure"
+        )
+        return GitHubSecurityPolicySourceObservation(
+            sequence=sequence,
+            role=role,
+            source_identity=source_identity,
+            response_status=None,
+            source_object_id=None,
+            raw_response_bytes=None,
+            raw_snapshot=None,
+            integrity_digest=None,
+            response_etag=None,
+            error=_error(category),
+        )
+    except ConnectionError:
+        return GitHubSecurityPolicySourceObservation(
+            sequence=sequence,
+            role=role,
+            source_identity=source_identity,
+            response_status=None,
+            source_object_id=None,
+            raw_response_bytes=None,
+            raw_snapshot=None,
+            integrity_digest=None,
+            response_etag=None,
+            error=_error("github_connectivity_failure"),
+        )
+
+    retry_after = _safe_header_value(
+        _header_value(response_headers, "Retry-After")
+    )
+    if response_status == 404:
+        return GitHubSecurityPolicySourceObservation(
+            sequence=sequence,
+            role=role,
+            source_identity=source_identity,
+            response_status=404,
+            source_object_id=None,
+            raw_response_bytes=None,
+            raw_snapshot=None,
+            integrity_digest=None,
+            response_etag=None,
+            error=None,
+        )
+    rate_limit_remaining = _header_value(
+        response_headers, "X-RateLimit-Remaining"
+    )
+    if response_status == 429 or (
+        response_status == 403
+        and _safe_header_value(rate_limit_remaining) == "0"
+    ):
+        error = _error("github_rate_limited", retry_after)
+    elif response_status in (401, 403):
+        error = _error("github_authorization_failed")
+    elif type(response_status) is int and 400 <= response_status <= 499:
+        error = _error("github_request_rejected")
+    elif type(response_status) is int and 500 <= response_status <= 599:
+        error = _error("github_server_error", retry_after)
+    elif response_status != 200:
+        error = _error("github_unexpected_status")
+    else:
+        error = None
+    if error is not None:
+        return GitHubSecurityPolicySourceObservation(
+            sequence=sequence,
+            role=role,
+            source_identity=source_identity,
+            response_status=response_status,
+            source_object_id=None,
+            raw_response_bytes=None,
+            raw_snapshot=None,
+            integrity_digest=None,
+            response_etag=None,
+            error=error,
+        )
+
+    if type(response_body) is not bytes:
+        return GitHubSecurityPolicySourceObservation(
+            sequence=sequence,
+            role=role,
+            source_identity=source_identity,
+            response_status=200,
+            source_object_id=None,
+            raw_response_bytes=None,
+            raw_snapshot=None,
+            integrity_digest=None,
+            response_etag=None,
+            error=_error("github_response_invalid"),
+        )
+    digest = hashlib.sha256(response_body).hexdigest()
+    try:
+        raw_snapshot = response_body.decode("utf-8")
+    except UnicodeDecodeError:
+        return GitHubSecurityPolicySourceObservation(
+            sequence=sequence,
+            role=role,
+            source_identity=source_identity,
+            response_status=200,
+            source_object_id=None,
+            raw_response_bytes=response_body,
+            raw_snapshot=None,
+            integrity_digest=digest,
+            response_etag=None,
+            error=_error("github_response_invalid"),
+        )
+    parts = _identity_parts(request.repository_identity)
+    if parts is None:
+        raise ValueError("request repository identity is invalid")
+    if role == "repository":
+        source_object_id = _validated_repository_identity_payload_values(
+            raw_snapshot,
+            "{}/{}".format(*parts),
+        )
+    else:
+        if expected_path is None:
+            raise ValueError("policy observation requires an expected path")
+        source_object_id = _validated_security_policy_payload_values(
+            raw_snapshot,
+            expected_source_identity=source_identity,
+            expected_path=expected_path,
+        )
+    response_etag = _safe_header_value(
+        _header_value(response_headers, "ETag")
+    )
+    if source_object_id is None:
+        return GitHubSecurityPolicySourceObservation(
+            sequence=sequence,
+            role=role,
+            source_identity=source_identity,
+            response_status=200,
+            source_object_id=None,
+            raw_response_bytes=response_body,
+            raw_snapshot=raw_snapshot,
+            integrity_digest=digest,
+            response_etag=None,
+            error=_error("github_response_invalid"),
+        )
+    return GitHubSecurityPolicySourceObservation(
+        sequence=sequence,
+        role=role,
+        source_identity=source_identity,
+        response_status=200,
+        source_object_id=source_object_id,
+        raw_response_bytes=response_body,
+        raw_snapshot=raw_snapshot,
+        integrity_digest=digest,
+        response_etag=response_etag,
+        error=None,
+    )
+
+
+def _security_policy_failed_result(
+    request: GitHubRepositoryMetadataCollectionInput,
+    observations: Tuple[GitHubSecurityPolicySourceObservation, ...],
+    repository_source_id: Optional[str],
+) -> GitHubSecurityPolicyPresenceCollectionResult:
+    terminal = observations[-1]
+    if terminal.error is None:
+        raise ValueError("terminal security observation must contain an error")
+    outcome = (
+        GitHubCollectionOutcome.FAILED_RETRYABLE
+        if terminal.error.retryability == "retryable"
+        else GitHubCollectionOutcome.FAILED_NONRETRYABLE
+    )
+    return GitHubSecurityPolicyPresenceCollectionResult(
+        request=request,
+        outcome=outcome,
+        evidence_kind=EvidenceKind.SECURITY_POLICY_PRESENT,
+        collector_version=_SECURITY_POLICY_COLLECTOR_VERSION,
+        source_identity=_source_identity(request),
+        repository_source_id=repository_source_id,
+        security_policy_present=None,
+        policy_scope=None,
+        policy_path=None,
+        policy_blob_sha=None,
+        observations=observations,
+        response_status=terminal.response_status,
+        error=terminal.error,
+    )
+
+
+def collect_public_github_security_policy_presence(
+    request: GitHubRepositoryMetadataCollectionInput,
+) -> GitHubSecurityPolicyPresenceCollectionResult:
+    """Collect GitHub-effective SECURITY.md presence in precedence order."""
+
+    if type(request) is not GitHubRepositoryMetadataCollectionInput:
+        raise ValueError(
+            "request must be a GitHubRepositoryMetadataCollectionInput"
+        )
+    repository_observation = _security_policy_observation(
+        request,
+        sequence=1,
+        role="repository",
+        source_identity=_source_identity(request),
+    )
+    observations = (repository_observation,)
+    if repository_observation.error is not None:
+        return _security_policy_failed_result(request, observations, None)
+    if repository_observation.response_status == 404:
+        return GitHubSecurityPolicyPresenceCollectionResult(
+            request=request,
+            outcome=GitHubCollectionOutcome.UNAVAILABLE,
+            evidence_kind=EvidenceKind.SECURITY_POLICY_PRESENT,
+            collector_version=_SECURITY_POLICY_COLLECTOR_VERSION,
+            source_identity=_source_identity(request),
+            repository_source_id=None,
+            security_policy_present=None,
+            policy_scope=None,
+            policy_path=None,
+            policy_blob_sha=None,
+            observations=observations,
+            response_status=404,
+            error=_error("repository_not_publicly_available"),
+        )
+    repository_source_id = repository_observation.source_object_id
+    for role, scope, path, source_identity in (
+        _security_policy_candidate_specs(request)
+    ):
+        observation = _security_policy_observation(
+            request,
+            sequence=len(observations) + 1,
+            role=role,
+            source_identity=source_identity,
+            expected_path=path,
+        )
+        observations = (*observations, observation)
+        if observation.error is not None:
+            return _security_policy_failed_result(
+                request, observations, repository_source_id
+            )
+        if observation.response_status == 404:
+            continue
+        return GitHubSecurityPolicyPresenceCollectionResult(
+            request=request,
+            outcome=GitHubCollectionOutcome.AVAILABLE,
+            evidence_kind=EvidenceKind.SECURITY_POLICY_PRESENT,
+            collector_version=_SECURITY_POLICY_COLLECTOR_VERSION,
+            source_identity=_source_identity(request),
+            repository_source_id=repository_source_id,
+            security_policy_present=True,
+            policy_scope=scope,
+            policy_path=path,
+            policy_blob_sha=observation.source_object_id,
+            observations=observations,
+            response_status=200,
+            error=None,
+        )
+    return GitHubSecurityPolicyPresenceCollectionResult(
+        request=request,
+        outcome=GitHubCollectionOutcome.AVAILABLE,
+        evidence_kind=EvidenceKind.SECURITY_POLICY_PRESENT,
+        collector_version=_SECURITY_POLICY_COLLECTOR_VERSION,
+        source_identity=_source_identity(request),
+        repository_source_id=repository_source_id,
+        security_policy_present=False,
+        policy_scope=None,
+        policy_path=None,
+        policy_blob_sha=None,
+        observations=observations,
+        response_status=404,
         error=None,
     )
 

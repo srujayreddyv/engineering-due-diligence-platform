@@ -64,32 +64,36 @@ The system must preserve:
 10. Audit timestamps
 
 The concrete prototype store is a caller-supplied on-disk SQLite database
-accessed directly through Python `sqlite3`. Schema version 3 covers complete
+accessed directly through Python `sqlite3`. Schema version 4 covers complete
 valid assessment requests plus terminal public GitHub repository-archived,
-license-status, and latest-commit timestamp collection outcomes. Exact schema
-version 2 databases migrate transactionally while preserving existing archived
-and license content; the existing exact version 1 migration may advance through
-version 2. Unsupported versions or altered schemas fail closed.
+license-status, latest-commit timestamp, and effective-security-policy
+collection outcomes. Exact schema version 3 databases migrate transactionally
+while preserving existing archived, license, and latest-commit content; the
+existing exact version 1 and 2 migrations remain supported. Unsupported
+versions or altered schemas fail closed.
 
-The persistence boundary uses four linked records: assessment request,
-collection attempt, complete GitHub source snapshot, and compact normalized
-evidence. The full successful response is stored separately from the canonical
-compact `EvidenceRecord` snapshot. Available writes commit the attempt, source
-snapshot, and evidence atomically; 404 writes commit the attempt and
-unavailable evidence atomically; other terminal failures persist only the
-attempt.
+The persistence boundary uses linked assessment requests, collection attempts,
+ordered source observations, complete GitHub source snapshots, and compact
+normalized evidence. Single-request collectors need one snapshot; the security
+policy collector may retain multiple snapshots and the complete ordered probe
+sequence. Full HTTP 200 response bytes are stored separately from the canonical
+compact `EvidenceRecord` snapshot. Evidence-producing writes commit every
+required attempt, observation, snapshot, and evidence row atomically; failed
+security-policy searches retain completed observations but produce no Boolean
+evidence.
 
 Available or unavailable evidence is authoritative only after the database is
 closed, reopened, and its exact fields, relationships, payload binding,
 digests, versions, normalization, and existing value invariants are verified.
-Repository-archived evidence uses the strict Boolean column; license-status
-evidence uses the strict `present` or `absent` column; latest-commit evidence
-uses a strict aware timestamp representation; unavailable evidence uses no
-typed value column. Latest-commit source timestamp spelling is preserved
-separately from its normalized value, and both must denote the same UTC
-instant. Exact replay is accepted without duplicates, conflicting replay is
-rejected, and incomplete or unverifiable writes fail closed. This boundary is
-not yet connected to deterministic evaluation or workflow orchestration.
+Repository-archived and security-policy evidence use separate strict Boolean
+columns; license-status evidence uses the strict `present` or `absent` column;
+latest-commit evidence uses a strict aware timestamp representation;
+unavailable evidence uses no typed value column. Latest-commit source timestamp
+spelling is preserved separately from its normalized value, and both must
+denote the same UTC instant. Exact replay is accepted without duplicates,
+conflicting replay is rejected, and incomplete or unverifiable writes fail
+closed. All four evaluator-required evidence kinds are durable, but durable
+loading and deterministic evaluation integration remain unimplemented.
 
 ## Initial Deployment Shape
 

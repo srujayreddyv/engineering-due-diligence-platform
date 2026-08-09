@@ -269,7 +269,7 @@ class SQLiteLicenseStatusPersistenceTests(unittest.TestCase):
         persist_valid_assessment_request(self.database_path, result)
         return result
 
-    def test_fresh_schema_is_version_two_with_typed_value_columns(self) -> None:
+    def test_fresh_schema_advances_to_version_four_with_typed_columns(self) -> None:
         self._persist_request()
 
         with sqlite3.connect(self.database_path) as connection:
@@ -283,7 +283,7 @@ class SQLiteLicenseStatusPersistenceTests(unittest.TestCase):
             sql = connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name='evidence_records'"
             ).fetchone()[0]
-        self.assertEqual(version, 3)
+        self.assertEqual(version, 4)
         self.assertIn("archived_value", columns)
         self.assertIn("license_status_value", columns)
         self.assertIn("'present', 'absent'", sql)
@@ -295,7 +295,7 @@ class SQLiteLicenseStatusPersistenceTests(unittest.TestCase):
 
         with sqlite3.connect(self.database_path) as connection:
             self.assertEqual(
-                connection.execute("PRAGMA user_version").fetchone()[0], 3
+                connection.execute("PRAGMA user_version").fetchone()[0], 4
             )
             self.assertFalse(
                 connection.execute("PRAGMA foreign_key_check").fetchall()

@@ -64,12 +64,14 @@ The complete source response is stored separately from the compact normalized
 production database selection; PostgreSQL and production operations remain
 deferred.
 
-The concrete schema is versioned with `PRAGMA user_version`. Schema version 3
-supports repository-archived, license-status, and latest-commit timestamp
-evidence through separate typed value columns. An exact schema version 2
-database migrates in one transaction, preserving archived and license content
-and advancing the version only after schema, row, and foreign-key verification;
-the existing exact version 1 migration may advance through version 2. Latest
-commit source timestamp text is preserved separately from its normalized aware
-datetime and both must denote the same UTC instant. This does not introduce a
-general migration framework or generic evidence-value store.
+The concrete schema is versioned with `PRAGMA user_version`. Schema version 4
+supports repository-archived, license-status, latest-commit timestamp, and
+security-policy-presence evidence through separate typed value columns. It also
+supports ordered source observations and multiple full source snapshots for a
+bounded multi-request collection attempt. An exact schema version 3 database
+migrates in one transaction, preserving archived, license, and latest-commit
+content and advancing the version only after schema, row, and foreign-key
+verification; the existing exact version 1 and 2 migration paths remain.
+Latest-commit source timestamp text is preserved separately from its normalized
+aware datetime and both must denote the same UTC instant. This does not
+introduce a general migration framework or generic evidence-value store.

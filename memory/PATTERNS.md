@@ -21,8 +21,10 @@ is the authority boundary that may reconstruct a normalized evidence record.
 
 Collectors do not calculate adoption recommendations.
 
-Raw responses or relevant source snapshots are preserved before derived
-calculations occur.
+Exact HTTP 200 response bytes or relevant source snapshots are preserved before
+derived calculations occur. A bounded multi-request collector preserves its
+ordered source observations and every successful response; an incomplete
+search must not produce a normalized Boolean fact.
 
 For timestamp-bearing evidence, preserve the exact source timestamp text
 separately from the normalized aware datetime representation. Different offset
@@ -40,7 +42,8 @@ For the concrete prototype persistence boundary:
 2. Persist a valid request before linked collection outcomes.
 3. Use explicit SQLite transactions for every linked record set and roll back
    incomplete writes.
-4. Keep complete source responses separate from compact normalized evidence.
+4. Keep complete source responses and ordered observations separate from
+   compact normalized evidence.
 5. Close and reopen the on-disk database before returning authoritative
    evidence.
 6. Recompute digests from reopened bytes, revalidate source payload binding and

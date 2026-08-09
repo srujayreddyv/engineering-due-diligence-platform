@@ -41,23 +41,26 @@ approval are outside the four week scope.
 ## Implemented Runtime
 
 The current implementation is dependency-free Python library code using the
-standard library, including `urllib` for one public GitHub request per
-collector invocation and `sqlite3` for caller-supplied on-disk prototype
-persistence. Tests use `unittest` and real temporary SQLite files; collector
-tests patch the private transport seam and make no live network calls.
+standard library, including `urllib` for bounded public GitHub requests and
+`sqlite3` for caller-supplied on-disk prototype persistence. Tests use
+`unittest` and real temporary SQLite files; collector tests patch the private
+transport seam and make no live network calls.
 
 Implemented boundaries include transient request validation, public GitHub
-repository-archived, license-status, and latest-commit timestamp collection,
-deterministic evidence-to-policy evaluation, in-memory assessment result
-assembly, and SQLite persistence for validated requests and terminal outcomes
-from those three collectors. GitHub license presence means detected metadata
-only, not legal or compatibility analysis.
+repository-archived, license-status, latest-commit timestamp, and effective
+security-policy-presence collection, deterministic evidence-to-policy
+evaluation, in-memory assessment result assembly, and SQLite persistence for
+validated requests and terminal outcomes from all four collectors. GitHub
+license presence means detected metadata only, not legal or compatibility
+analysis. Security-policy presence includes repository-local `SECURITY.md`
+files and inherited defaults from the owner's public `.github` repository.
 
-SQLite schema version 3 stores repository-archived, license-status, and
-latest-commit timestamp evidence in separate typed columns. Exact schema
-version 2 databases migrate transactionally while preserving archived and
-license content; the existing exact version 1 migration may advance through
-version 2. Complete successful GitHub responses remain separate from compact
+SQLite schema version 4 stores all four evidence kinds in separate typed
+columns and adds ordered GitHub source observations plus multiple source
+snapshots for bounded multi-request collection. Exact schema version 3
+databases migrate transactionally while preserving archived, license, and
+latest-commit content; the existing exact version 1 and 2 migrations remain
+supported. Complete HTTP 200 response bytes remain separate from compact
 normalized evidence, and only close-and-reopen verified evidence is
 authoritative. For latest commits, the exact source timestamp spelling and the
 normalized timestamp representation are preserved separately and must denote

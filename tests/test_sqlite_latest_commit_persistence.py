@@ -259,7 +259,7 @@ class SQLiteLatestCommitPersistenceTests(unittest.TestCase):
             self.database_path, result
         )
 
-    def test_fresh_schema_is_exact_version_three(self) -> None:
+    def test_fresh_schema_advances_to_exact_version_four(self) -> None:
         self._persist_request()
         with sqlite3.connect(self.database_path) as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
@@ -272,7 +272,7 @@ class SQLiteLatestCommitPersistenceTests(unittest.TestCase):
             attempts_sql = connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name='collection_attempts'"
             ).fetchone()[0]
-        self.assertEqual(version, 3)
+        self.assertEqual(version, 4)
         self.assertIn("latest_commit_timestamp_value", columns)
         self.assertIn("latest_commit_timestamp", attempts_sql)
 
@@ -320,7 +320,7 @@ class SQLiteLatestCommitPersistenceTests(unittest.TestCase):
 
         with sqlite3.connect(self.database_path) as connection:
             self.assertEqual(
-                connection.execute("PRAGMA user_version").fetchone()[0], 3
+                connection.execute("PRAGMA user_version").fetchone()[0], 4
             )
             for table, columns in table_columns:
                 rows = connection.execute(
@@ -335,7 +335,7 @@ class SQLiteLatestCommitPersistenceTests(unittest.TestCase):
         original_verify = persistence._verify_schema_definition
 
         def fail_v3(connection, expected_columns, expected_sql):
-            if expected_columns is persistence._EXPECTED_COLUMNS:
+            if expected_columns is persistence._EXPECTED_COLUMNS_V3:
                 raise SQLitePersistenceError("schema_incompatible")
             return original_verify(connection, expected_columns, expected_sql)
 

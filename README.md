@@ -1,13 +1,13 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** Days 1 through 9 established the engagement, domain and
+> **Current status:** Days 1 through 10 established the engagement, domain and
 > failure models, deterministic evaluation slice, transient request validation,
-> public GitHub repository-archived and license-status collection, and durable
-> evidence for those facts. Day 10 adds strict latest-commit timestamp
-> collection and persistence through SQLite schema version 3. The boundary
-> remains a narrow library slice: security-policy collection, workflow
-> orchestration, evaluation integration, audit, reports, APIs, model use, and
-> human decisions remain unimplemented.
+> and durable public GitHub repository-archived, license-status, and
+> latest-commit evidence. Day 11 adds effective security-policy-presence
+> collection and persistence through SQLite schema version 4. All four evidence
+> kinds required by the deterministic evaluator are now durable, but durable
+> evidence loading, evaluation integration, workflow orchestration, audit,
+> reports, APIs, model use, and human decisions remain unimplemented.
 
 ## Customer Problem
 
@@ -249,11 +249,47 @@ Repository-archived, license-status, and latest-commit timestamp evidence are
 now durable. Persistence remains intentionally disconnected from deterministic
 assessment evaluation until the complete four-kind evidence set exists.
 
+Completed on Day 11:
+
+* one bounded collector first verifies the assessed public repository, then
+  probes local `.github/SECURITY.md`, `SECURITY.md`, and
+  `docs/SECURITY.md` paths before the same inherited paths in the owner's
+  public `.github` repository;
+* the first strictly valid policy file produces `True`, complete candidate 404
+  coverage after repository verification produces `False`, and assessed
+  repository 404 produces unavailable evidence; candidate 404 responses are
+  ordered negative observations rather than repository unavailability;
+* every HTTP 200 response is preserved as exact bytes with a matching SHA256
+  digest, including malformed non-UTF-8 bodies, while HTTP error bodies are
+  never read or stored and incomplete searches never produce Boolean evidence;
+* SQLite schema version 4 adds a typed security-policy Boolean, ordered GitHub
+  source observations, and multiple source snapshots per collection attempt;
+  exact version 3 schemas migrate transactionally while preserving archived,
+  license, and latest-commit rows exactly;
+* available `True` and `False` results atomically persist the attempt, complete
+  ordered observations, successful snapshots, and compact evidence; repository
+  404 persists unavailable evidence, while other failures persist observations
+  without evidence;
+* close-and-reopen verification reconstructs the entire probe sequence,
+  recomputes every source and compact digest, revalidates source binding and
+  normalization, and rejects conflicting replay without mutation; and
+* 13 focused collector tests and 15 focused persistence tests pass, with all
+  205 repository tests passing.
+
+For this project, security-policy presence means an effective `SECURITY.md`
+found either in the assessed repository or through the owner's public GitHub
+community-health `.github` repository. It establishes presence only; it does
+not assess policy quality, response capability, or security posture.
+
+Repository-archived, license-status, latest-commit timestamp, and
+security-policy-presence evidence are now durable. The next boundary must load
+the exact authoritative four-kind evidence set from SQLite and connect it to
+the existing deterministic evaluator without recollection or partial results.
+
 Not yet implemented:
 
-* security-policy presence collection and persistence;
-* workflow orchestration and deterministic evaluation integration for the
-  complete four-kind durable evidence set;
+* durable four-kind evidence loading and deterministic evaluation integration;
+* workflow orchestration around the durable evaluation boundary;
 * audit history, assessment APIs, generated reports, and model integration;
 * human decisions and review interfaces; and
 * production storage and deployment, observability, and prototype evaluation.
@@ -263,8 +299,8 @@ Not yet implemented:
 | Week | Milestone | Status |
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
-| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy slice, result assembly, and archived/license/latest-commit SQLite persistence verified; workflow remains planned |
-| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | Repository archived, license status, and latest-commit collection and persistence verified; security-policy, reporting, review, audit, and observability remain planned |
+| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy slice, result assembly, and all four required SQLite evidence kinds verified; workflow remains planned |
+| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub evidence collectors and persistence slices verified; durable evaluation integration, reporting, review, audit, and observability remain planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
 Milestones describe intended sequencing and are not claims of completed
@@ -326,11 +362,11 @@ capability.
 ```
 
 The Python package now contains dependency-free transient request validation,
-public GitHub archived-status, license-status, and latest-commit collection,
-deterministic evaluation and in-memory result assembly, plus concrete SQLite
-persistence for validated requests and those three evidence kinds. It is
-library code rather than an API or deployed application. Run its tests from
-the repository root with:
+public GitHub archived-status, license-status, latest-commit, and effective
+security-policy collection, deterministic evaluation and in-memory result
+assembly, plus concrete SQLite persistence for validated requests and all four
+evidence kinds. It is library code rather than an API or deployed application.
+Run its tests from the repository root with:
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
@@ -347,6 +383,6 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_10_public_github_latest_commit_collection_and_persistence.md](plans/day_10_public_github_latest_commit_collection_and_persistence.md),
+[plans/day_11_public_github_security_policy_collection_and_persistence.md](plans/day_11_public_github_security_policy_collection_and_persistence.md),
 with its durable storage decision recorded in
 [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md).

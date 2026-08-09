@@ -16,6 +16,8 @@ from .github import (
     GitHubRepositoryMetadataCollectionError,
     GitHubRepositoryMetadataCollectionInput,
     GitHubRepositoryMetadataCollectionResult,
+    GitHubSecurityPolicyPresenceCollectionResult,
+    GitHubSecurityPolicySourceObservation,
 )
 from .models import (
     Criticality,
@@ -36,23 +38,31 @@ from .request import (
 
 _DatabasePath = Union[str, os.PathLike[str]]
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _SQLITE_SYNCHRONOUS_FULL = 2
 _EVIDENCE_SCHEMA_VERSION = "evidence-record.v1"
 _ARCHIVED_NORMALIZATION_VERSION = "repository-archived-normalization.v1"
 _LICENSE_NORMALIZATION_VERSION = "license-status-normalization.v1"
 _LATEST_COMMIT_NORMALIZATION_VERSION = "latest-commit-normalization.v1"
+_SECURITY_POLICY_NORMALIZATION_VERSION = (
+    "security-policy-presence-normalization.v1"
+)
 _ARCHIVED_COLLECTOR_NAME = "public-github-repository-metadata"
 _LICENSE_COLLECTOR_NAME = "public-github-license-status"
 _LATEST_COMMIT_COLLECTOR_NAME = "public-github-latest-commit"
+_SECURITY_POLICY_COLLECTOR_NAME = "public-github-security-policy-presence"
 _SOURCE_SNAPSHOT_NAMESPACE = "github-source-snapshot.v1"
 _ARCHIVED_EVIDENCE_NAMESPACE = "repository-archived-evidence.v1"
 _LICENSE_EVIDENCE_NAMESPACE = "license-status-evidence.v1"
 _LATEST_COMMIT_EVIDENCE_NAMESPACE = "latest-commit-evidence.v1"
+_SECURITY_POLICY_EVIDENCE_NAMESPACE = "security-policy-evidence.v1"
+_SECURITY_OBSERVATION_NAMESPACE = "github-security-source-observation.v1"
 _SOURCE_SNAPSHOT_PREFIX = "github-source-snapshot-"
 _ARCHIVED_EVIDENCE_PREFIX = "repository-archived-evidence-"
 _LICENSE_EVIDENCE_PREFIX = "license-status-evidence-"
 _LATEST_COMMIT_EVIDENCE_PREFIX = "latest-commit-evidence-"
+_SECURITY_POLICY_EVIDENCE_PREFIX = "security-policy-evidence-"
+_SECURITY_OBSERVATION_PREFIX = "github-security-source-observation-"
 
 _ERROR_MESSAGES = {
     "invalid_input": "The persistence input is invalid.",
@@ -117,6 +127,18 @@ _SOURCE_SNAPSHOT_COLUMNS = (
     "response_etag",
 )
 
+_SOURCE_OBSERVATION_COLUMNS = (
+    "source_observation_id",
+    "collection_attempt_id",
+    "request_sequence",
+    "source_role",
+    "source_identity",
+    "response_status",
+    "response_etag",
+    "error_category",
+    "source_snapshot_id",
+)
+
 _EVIDENCE_COLUMNS_V1 = (
     "evidence_id",
     "assessment_id",
@@ -147,10 +169,16 @@ _EVIDENCE_COLUMNS_V2 = (
     *_EVIDENCE_COLUMNS_V1[17:],
 )
 
-_EVIDENCE_COLUMNS = (
+_EVIDENCE_COLUMNS_V3 = (
     *_EVIDENCE_COLUMNS_V2[:18],
     "latest_commit_timestamp_value",
     *_EVIDENCE_COLUMNS_V2[18:],
+)
+
+_EVIDENCE_COLUMNS = (
+    *_EVIDENCE_COLUMNS_V3[:19],
+    "security_policy_present_value",
+    *_EVIDENCE_COLUMNS_V3[19:],
 )
 
 _EXPECTED_COLUMNS_V1 = {
@@ -603,15 +631,186 @@ _SCHEMA_V3_STATEMENTS = (
     ),
 )
 
+_EXPECTED_COLUMNS_V3 = {
+    "assessment_requests": _REQUEST_COLUMNS,
+    "collection_attempts": _ATTEMPT_COLUMNS,
+    "github_source_snapshots": _SOURCE_SNAPSHOT_COLUMNS,
+    "evidence_records": _EVIDENCE_COLUMNS_V3,
+}
+
+_EXPECTED_SCHEMA_SQL_V3 = dict(
+    zip(_EXPECTED_COLUMNS_V3, _SCHEMA_V3_STATEMENTS)
+)
+
+_SCHEMA_V4_STATEMENTS = (
+    _SCHEMA_V3_STATEMENTS[0],
+    _SCHEMA_V3_STATEMENTS[1]
+    .replace(
+        "'latest_commit_timestamp'\n            )",
+        "'latest_commit_timestamp',\n"
+        "                'security_policy_present'\n"
+        "            )",
+    )
+    .replace(
+        "(outcome = 'available'\n                AND response_status = 200",
+        "(outcome = 'available'\n"
+        "                AND (\n"
+        "                    (evidence_kind = 'security_policy_present'\n"
+        "                        AND response_status IN (200, 404))\n"
+        "                    OR\n"
+        "                    (evidence_kind != 'security_policy_present'\n"
+        "                        AND response_status = 200)\n"
+        "                )",
+    )
+    .replace(
+        "'repository_archived', 'license_status'\n                        )",
+        "'repository_archived', 'license_status',\n"
+        "                            'security_policy_present'\n"
+        "                        )",
+    ),
+    _SCHEMA_V3_STATEMENTS[2].replace(
+        "collection_attempt_id TEXT NOT NULL UNIQUE,",
+        "collection_attempt_id TEXT NOT NULL,",
+    ).replace(
+        "CHECK (encoding = 'utf-8')",
+        "CHECK (encoding IN ('utf-8', 'binary'))",
+    ).replace(
+        "repository_source_id TEXT NOT NULL\n"
+        "            CHECK (length(repository_source_id) > 0),",
+        "repository_source_id TEXT\n"
+        "            CHECK (\n"
+        "                repository_source_id IS NULL\n"
+        "                OR (\n"
+        "                    typeof(repository_source_id) = 'text'\n"
+        "                    AND length(repository_source_id) > 0\n"
+        "                )\n"
+        "            ),",
+    ),
+    _SCHEMA_V3_STATEMENTS[3]
+    .replace(
+        "'latest_commit_timestamp'\n            )",
+        "'latest_commit_timestamp',\n"
+        "                'security_policy_present'\n"
+        "            )",
+    )
+    .replace(
+        "        compact_snapshot TEXT,",
+        "        security_policy_present_value INTEGER\n"
+        "            CHECK (\n"
+        "                security_policy_present_value IS NULL\n"
+        "                OR (\n"
+        "                    typeof(security_policy_present_value) = 'integer'\n"
+        "                    AND security_policy_present_value IN (0, 1)\n"
+        "                )\n"
+        "            ),\n"
+        "        compact_snapshot TEXT,",
+    )
+    .replace(
+        "AND latest_commit_timestamp_value IS NULL)\n"
+        "                    OR\n"
+        "                    (evidence_kind = 'license_status'",
+        "AND latest_commit_timestamp_value IS NULL\n"
+        "                        AND security_policy_present_value IS NULL)\n"
+        "                    OR\n"
+        "                    (evidence_kind = 'license_status'",
+    )
+    .replace(
+        "AND latest_commit_timestamp_value IS NULL)\n"
+        "                    OR\n"
+        "                    (evidence_kind = 'latest_commit_timestamp'",
+        "AND latest_commit_timestamp_value IS NULL\n"
+        "                        AND security_policy_present_value IS NULL)\n"
+        "                    OR\n"
+        "                    (evidence_kind = 'latest_commit_timestamp'",
+    )
+    .replace(
+        "AND latest_commit_timestamp_value IS NOT NULL)\n"
+        "                ))",
+        "AND latest_commit_timestamp_value IS NOT NULL\n"
+        "                        AND security_policy_present_value IS NULL)\n"
+        "                    OR\n"
+        "                    (evidence_kind = 'security_policy_present'\n"
+        "                        AND archived_value IS NULL\n"
+        "                        AND license_status_value IS NULL\n"
+        "                        AND latest_commit_timestamp_value IS NULL\n"
+        "                        AND security_policy_present_value IS NOT NULL)\n"
+        "                ))",
+    )
+    .replace(
+        "AND latest_commit_timestamp_value IS NULL\n"
+        "                AND compact_snapshot IS NULL",
+        "AND latest_commit_timestamp_value IS NULL\n"
+        "                AND security_policy_present_value IS NULL\n"
+        "                AND compact_snapshot IS NULL",
+    ),
+    """
+    CREATE TABLE github_source_observations (
+        source_observation_id TEXT PRIMARY KEY
+            CHECK (length(source_observation_id) > 0),
+        collection_attempt_id TEXT NOT NULL,
+        request_sequence INTEGER NOT NULL
+            CHECK (typeof(request_sequence) = 'integer' AND request_sequence > 0),
+        source_role TEXT NOT NULL
+            CHECK (source_role IN (
+                'repository',
+                'target_dotgithub',
+                'target_root',
+                'target_docs',
+                'default_dotgithub',
+                'default_root',
+                'default_docs'
+            )),
+        source_identity TEXT NOT NULL
+            CHECK (length(source_identity) > 0),
+        response_status INTEGER
+            CHECK (
+                response_status IS NULL
+                OR (
+                    typeof(response_status) = 'integer'
+                    AND response_status BETWEEN 100 AND 599
+                )
+            ),
+        response_etag TEXT,
+        error_category TEXT,
+        source_snapshot_id TEXT,
+        FOREIGN KEY (collection_attempt_id)
+            REFERENCES collection_attempts(collection_attempt_id),
+        FOREIGN KEY (source_snapshot_id, collection_attempt_id)
+            REFERENCES github_source_snapshots(
+                source_snapshot_id, collection_attempt_id
+            ),
+        UNIQUE (collection_attempt_id, request_sequence),
+        UNIQUE (source_observation_id, collection_attempt_id),
+        CHECK (
+            (response_status = 200
+                AND (
+                    source_snapshot_id IS NOT NULL
+                    OR error_category IS NOT NULL
+                ))
+            OR
+            (response_status = 404
+                AND source_snapshot_id IS NULL
+                AND response_etag IS NULL)
+            OR
+            (error_category IS NOT NULL
+                AND (response_status IS NULL OR response_status != 200)
+                AND source_snapshot_id IS NULL
+                AND response_etag IS NULL)
+        )
+    )
+    """,
+)
+
 _EXPECTED_COLUMNS = {
     "assessment_requests": _REQUEST_COLUMNS,
     "collection_attempts": _ATTEMPT_COLUMNS,
     "github_source_snapshots": _SOURCE_SNAPSHOT_COLUMNS,
     "evidence_records": _EVIDENCE_COLUMNS,
+    "github_source_observations": _SOURCE_OBSERVATION_COLUMNS,
 }
 
 _EXPECTED_SCHEMA_SQL = dict(
-    zip(_EXPECTED_COLUMNS, _SCHEMA_V3_STATEMENTS)
+    zip(_EXPECTED_COLUMNS, _SCHEMA_V4_STATEMENTS)
 )
 
 
@@ -716,14 +915,14 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
                 raise _error("schema_incompatible")
             connection.execute("BEGIN IMMEDIATE")
             try:
-                for statement in _SCHEMA_V3_STATEMENTS:
+                for statement in _SCHEMA_V4_STATEMENTS:
                     connection.execute(statement)
                 _verify_schema_definition(
                     connection, _EXPECTED_COLUMNS, _EXPECTED_SCHEMA_SQL
                 )
                 if connection.execute("PRAGMA foreign_key_check").fetchall():
                     raise _error("schema_incompatible")
-                connection.execute("PRAGMA user_version = 3")
+                connection.execute("PRAGMA user_version = 4")
                 connection.commit()
             except Exception:
                 _rollback_safely(connection)
@@ -735,7 +934,7 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
                 _EXPECTED_SCHEMA_SQL_V1,
             )
             _migrate_schema_v1_to_v2(connection)
-        elif version not in (2, _SCHEMA_VERSION):
+        elif version not in (2, 3, _SCHEMA_VERSION):
             raise _error("schema_incompatible")
 
         version = connection.execute("PRAGMA user_version").fetchone()[0]
@@ -746,13 +945,24 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
                 _EXPECTED_SCHEMA_SQL_V2,
             )
             _migrate_schema_v2_to_v3(connection)
+        elif version not in (3, _SCHEMA_VERSION):
+            raise _error("schema_incompatible")
+
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if version == 3:
+            _verify_schema_definition(
+                connection,
+                _EXPECTED_COLUMNS_V3,
+                _EXPECTED_SCHEMA_SQL_V3,
+            )
+            _migrate_schema_v3_to_v4(connection)
         elif version != _SCHEMA_VERSION:
             raise _error("schema_incompatible")
 
         _verify_schema_definition(
             connection, _EXPECTED_COLUMNS, _EXPECTED_SCHEMA_SQL
         )
-        if connection.execute("PRAGMA user_version").fetchone()[0] != 3:
+        if connection.execute("PRAGMA user_version").fetchone()[0] != 4:
             raise _error("schema_incompatible")
     except SQLitePersistenceError:
         raise
@@ -924,7 +1134,7 @@ def _migrate_schema_v2_to_v3(connection: sqlite3.Connection) -> None:
         connection.execute(
             "INSERT INTO evidence_records ({0}) "
             "SELECT {1}, NULL, {2} FROM evidence_records_v2".format(
-                ", ".join(_EVIDENCE_COLUMNS),
+                ", ".join(_EVIDENCE_COLUMNS_V3),
                 ", ".join(_EVIDENCE_COLUMNS_V2[:18]),
                 ", ".join(_EVIDENCE_COLUMNS_V2[18:]),
             )
@@ -970,11 +1180,101 @@ def _migrate_schema_v2_to_v3(connection: sqlite3.Connection) -> None:
         connection.execute("DROP TABLE github_source_snapshots_v2")
         connection.execute("DROP TABLE collection_attempts_v2")
         _verify_schema_definition(
-            connection, _EXPECTED_COLUMNS, _EXPECTED_SCHEMA_SQL
+            connection, _EXPECTED_COLUMNS_V3, _EXPECTED_SCHEMA_SQL_V3
         )
         if connection.execute("PRAGMA foreign_key_check").fetchall():
             raise _error("schema_incompatible")
         connection.execute("PRAGMA user_version = 3")
+        connection.commit()
+    except Exception:
+        _rollback_safely(connection)
+        raise
+
+
+def _migrate_schema_v3_to_v4(connection: sqlite3.Connection) -> None:
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            "ALTER TABLE evidence_records RENAME TO evidence_records_v3"
+        )
+        connection.execute(
+            "ALTER TABLE github_source_snapshots "
+            "RENAME TO github_source_snapshots_v3"
+        )
+        connection.execute(
+            "ALTER TABLE collection_attempts RENAME TO collection_attempts_v3"
+        )
+        connection.execute(_SCHEMA_V4_STATEMENTS[1])
+        connection.execute(_SCHEMA_V4_STATEMENTS[2])
+        connection.execute(_SCHEMA_V4_STATEMENTS[3])
+        connection.execute(_SCHEMA_V4_STATEMENTS[4])
+
+        connection.execute(
+            "INSERT INTO collection_attempts ({0}) "
+            "SELECT {0} FROM collection_attempts_v3".format(
+                ", ".join(_ATTEMPT_COLUMNS)
+            )
+        )
+        connection.execute(
+            "INSERT INTO github_source_snapshots ({0}) "
+            "SELECT {0} FROM github_source_snapshots_v3".format(
+                ", ".join(_SOURCE_SNAPSHOT_COLUMNS)
+            )
+        )
+        connection.execute(
+            "INSERT INTO evidence_records ({0}) "
+            "SELECT {1}, NULL, {2} FROM evidence_records_v3".format(
+                ", ".join(_EVIDENCE_COLUMNS),
+                ", ".join(_EVIDENCE_COLUMNS_V3[:19]),
+                ", ".join(_EVIDENCE_COLUMNS_V3[19:]),
+            )
+        )
+
+        for old_table, new_table, columns in (
+            (
+                "collection_attempts_v3",
+                "collection_attempts",
+                _ATTEMPT_COLUMNS,
+            ),
+            (
+                "github_source_snapshots_v3",
+                "github_source_snapshots",
+                _SOURCE_SNAPSHOT_COLUMNS,
+            ),
+            (
+                "evidence_records_v3",
+                "evidence_records",
+                _EVIDENCE_COLUMNS_V3,
+            ),
+        ):
+            selected = ", ".join(columns)
+            primary_key = columns[0]
+            old_rows = connection.execute(
+                "SELECT {} FROM {} ORDER BY {}".format(
+                    selected, old_table, primary_key
+                )
+            ).fetchall()
+            new_rows = connection.execute(
+                "SELECT {} FROM {} ORDER BY {}".format(
+                    selected, new_table, primary_key
+                )
+            ).fetchall()
+            if [tuple(row) for row in old_rows] != [
+                tuple(row) for row in new_rows
+            ]:
+                raise _error("schema_incompatible")
+
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise _error("schema_incompatible")
+        connection.execute("DROP TABLE evidence_records_v3")
+        connection.execute("DROP TABLE github_source_snapshots_v3")
+        connection.execute("DROP TABLE collection_attempts_v3")
+        _verify_schema_definition(
+            connection, _EXPECTED_COLUMNS, _EXPECTED_SCHEMA_SQL
+        )
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise _error("schema_incompatible")
+        connection.execute("PRAGMA user_version = 4")
         connection.commit()
     except Exception:
         _rollback_safely(connection)
@@ -1315,6 +1615,78 @@ def _validated_latest_commit_collection_result(
     return reconstructed
 
 
+def _validated_security_policy_collection_result(
+    collection_result: object,
+) -> GitHubSecurityPolicyPresenceCollectionResult:
+    if type(collection_result) is not GitHubSecurityPolicyPresenceCollectionResult:
+        raise _error("invalid_input")
+    try:
+        supplied_request = collection_result.request
+        reconstructed_request = GitHubRepositoryMetadataCollectionInput(
+            assessment_id=supplied_request.assessment_id,
+            repository_identity=supplied_request.repository_identity,
+            collection_attempt_id=supplied_request.collection_attempt_id,
+            attempt_number=supplied_request.attempt_number,
+            attempted_at=supplied_request.attempted_at,
+        )
+        reconstructed_observations = []
+        for observation in collection_result.observations:
+            observation_error = observation.error
+            reconstructed_observation_error = None
+            if observation_error is not None:
+                reconstructed_observation_error = (
+                    GitHubRepositoryMetadataCollectionError(
+                        category=observation_error.category,
+                        retryability=observation_error.retryability,
+                        message=observation_error.message,
+                        retry_after=observation_error.retry_after,
+                    )
+                )
+            reconstructed_observations.append(
+                GitHubSecurityPolicySourceObservation(
+                    sequence=observation.sequence,
+                    role=observation.role,
+                    source_identity=observation.source_identity,
+                    response_status=observation.response_status,
+                    source_object_id=observation.source_object_id,
+                    raw_response_bytes=observation.raw_response_bytes,
+                    raw_snapshot=observation.raw_snapshot,
+                    integrity_digest=observation.integrity_digest,
+                    response_etag=observation.response_etag,
+                    error=reconstructed_observation_error,
+                )
+            )
+        result_error = collection_result.error
+        reconstructed_result_error = None
+        if result_error is not None:
+            reconstructed_result_error = GitHubRepositoryMetadataCollectionError(
+                category=result_error.category,
+                retryability=result_error.retryability,
+                message=result_error.message,
+                retry_after=result_error.retry_after,
+            )
+        reconstructed = GitHubSecurityPolicyPresenceCollectionResult(
+            request=reconstructed_request,
+            outcome=collection_result.outcome,
+            evidence_kind=collection_result.evidence_kind,
+            collector_version=collection_result.collector_version,
+            source_identity=collection_result.source_identity,
+            repository_source_id=collection_result.repository_source_id,
+            security_policy_present=collection_result.security_policy_present,
+            policy_scope=collection_result.policy_scope,
+            policy_path=collection_result.policy_path,
+            policy_blob_sha=collection_result.policy_blob_sha,
+            observations=tuple(reconstructed_observations),
+            response_status=collection_result.response_status,
+            error=reconstructed_result_error,
+        )
+    except (AttributeError, TypeError, ValueError):
+        raise _error("invalid_input") from None
+    if reconstructed != collection_result:
+        raise _error("invalid_input")
+    return reconstructed
+
+
 def _deterministic_identifier(
     namespace: str,
     prefix: str,
@@ -1346,6 +1718,48 @@ def _source_snapshot_id(
     )
 
 
+def _security_sequence_identifier(
+    namespace: str,
+    prefix: str,
+    request: GitHubRepositoryMetadataCollectionInput,
+    sequence: int,
+) -> str:
+    material = "\0".join(
+        (
+            namespace,
+            request.assessment_id,
+            EvidenceKind.SECURITY_POLICY_PRESENT.value,
+            request.collection_attempt_id,
+            str(sequence),
+        )
+    ).encode("utf-8")
+    return prefix + hashlib.sha256(material).hexdigest()
+
+
+def _security_observation_id(
+    request: GitHubRepositoryMetadataCollectionInput,
+    sequence: int,
+) -> str:
+    return _security_sequence_identifier(
+        _SECURITY_OBSERVATION_NAMESPACE,
+        _SECURITY_OBSERVATION_PREFIX,
+        request,
+        sequence,
+    )
+
+
+def _security_source_snapshot_id(
+    request: GitHubRepositoryMetadataCollectionInput,
+    sequence: int,
+) -> str:
+    return _security_sequence_identifier(
+        _SOURCE_SNAPSHOT_NAMESPACE,
+        _SOURCE_SNAPSHOT_PREFIX,
+        request,
+        sequence,
+    )
+
+
 def _evidence_id(
     request: GitHubRepositoryMetadataCollectionInput,
     evidence_kind: EvidenceKind = EvidenceKind.REPOSITORY_ARCHIVED,
@@ -1359,6 +1773,9 @@ def _evidence_id(
     elif evidence_kind is EvidenceKind.LATEST_COMMIT_TIMESTAMP:
         namespace = _LATEST_COMMIT_EVIDENCE_NAMESPACE
         prefix = _LATEST_COMMIT_EVIDENCE_PREFIX
+    elif evidence_kind is EvidenceKind.SECURITY_POLICY_PRESENT:
+        namespace = _SECURITY_POLICY_EVIDENCE_NAMESPACE
+        prefix = _SECURITY_POLICY_EVIDENCE_PREFIX
     else:
         raise _error("verification_failed")
     return _deterministic_identifier(
@@ -1744,6 +2161,230 @@ def _latest_commit_source_snapshot_values(
     )
 
 
+def _security_policy_expected_evidence(
+    collection_result: GitHubSecurityPolicyPresenceCollectionResult,
+) -> Optional[EvidenceRecord]:
+    request = collection_result.request
+    observation_provenance = []
+    for observation in collection_result.observations:
+        prefix = "observation_{:02d}".format(observation.sequence)
+        observation_provenance.extend(
+            (
+                (prefix + "_id", _security_observation_id(request, observation.sequence)),
+                (prefix + "_role", observation.role),
+                (prefix + "_source_identity", observation.source_identity),
+                (
+                    prefix + "_status",
+                    str(observation.response_status)
+                    if observation.response_status is not None
+                    else "none",
+                ),
+            )
+        )
+        if observation.integrity_digest is not None:
+            observation_provenance.append(
+                (prefix + "_digest", observation.integrity_digest)
+            )
+    if collection_result.outcome is GitHubCollectionOutcome.AVAILABLE:
+        if (
+            type(collection_result.security_policy_present) is not bool
+            or collection_result.repository_source_id is None
+        ):
+            raise _error("verification_failed")
+        decisive = (
+            collection_result.observations[-1]
+            if collection_result.security_policy_present
+            else collection_result.observations[0]
+        )
+        if decisive.raw_snapshot is None:
+            raise _error("verification_failed")
+        snapshot_id = _security_source_snapshot_id(
+            request, decisive.sequence
+        )
+        provenance = (
+            ("source_snapshot_id", snapshot_id),
+            ("repository_source_id", collection_result.repository_source_id),
+            ("observation_count", str(len(collection_result.observations))),
+            *observation_provenance,
+        )
+        if collection_result.security_policy_present:
+            if (
+                collection_result.policy_scope is None
+                or collection_result.policy_path is None
+                or collection_result.policy_blob_sha is None
+            ):
+                raise _error("verification_failed")
+            provenance = (
+                *provenance,
+                ("policy_scope", collection_result.policy_scope),
+                ("policy_path", collection_result.policy_path),
+                ("policy_blob_sha", collection_result.policy_blob_sha),
+            )
+        compact_snapshot = json.dumps(
+            {"value": collection_result.security_policy_present},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        try:
+            return EvidenceRecord(
+                evidence_id=_evidence_id(
+                    request, EvidenceKind.SECURITY_POLICY_PRESENT
+                ),
+                assessment_id=request.assessment_id,
+                evidence_kind=EvidenceKind.SECURITY_POLICY_PRESENT,
+                source_identity=collection_result.source_identity,
+                collector_name=_SECURITY_POLICY_COLLECTOR_NAME,
+                collector_version=collection_result.collector_version,
+                collection_attempt_id=request.collection_attempt_id,
+                attempt_number=request.attempt_number,
+                attempted_at=request.attempted_at,
+                collection_outcome=EvidenceOutcome.AVAILABLE,
+                freshness_basis="collection_time",
+                freshness_status_at_collection=FreshnessStatus.CURRENT,
+                evidence_schema_version=_EVIDENCE_SCHEMA_VERSION,
+                provenance=provenance,
+                value=collection_result.security_policy_present,
+                raw_snapshot=compact_snapshot,
+                integrity_digest=hashlib.sha256(
+                    compact_snapshot.encode("utf-8")
+                ).hexdigest(),
+            )
+        except ValueError:
+            raise _error("verification_failed") from None
+
+    if collection_result.outcome is GitHubCollectionOutcome.UNAVAILABLE:
+        if collection_result.error is None:
+            raise _error("verification_failed")
+        provenance = (
+            ("collection_error_category", collection_result.error.category),
+            ("observation_count", str(len(collection_result.observations))),
+            *observation_provenance,
+        )
+        try:
+            return EvidenceRecord(
+                evidence_id=_evidence_id(
+                    request, EvidenceKind.SECURITY_POLICY_PRESENT
+                ),
+                assessment_id=request.assessment_id,
+                evidence_kind=EvidenceKind.SECURITY_POLICY_PRESENT,
+                source_identity=collection_result.source_identity,
+                collector_name=_SECURITY_POLICY_COLLECTOR_NAME,
+                collector_version=collection_result.collector_version,
+                collection_attempt_id=request.collection_attempt_id,
+                attempt_number=request.attempt_number,
+                attempted_at=request.attempted_at,
+                collection_outcome=EvidenceOutcome.UNAVAILABLE,
+                freshness_basis="unknown",
+                freshness_status_at_collection=FreshnessStatus.UNKNOWN,
+                evidence_schema_version=_EVIDENCE_SCHEMA_VERSION,
+                provenance=provenance,
+                unavailability_reason="repository_not_publicly_available",
+                error_category="repository_not_publicly_available",
+            )
+        except ValueError:
+            raise _error("verification_failed") from None
+    return None
+
+
+def _security_policy_attempt_values(
+    collection_result: GitHubSecurityPolicyPresenceCollectionResult,
+) -> Tuple[object, ...]:
+    request = collection_result.request
+    error = collection_result.error
+    terminal = collection_result.observations[-1]
+    return (
+        request.collection_attempt_id,
+        request.assessment_id,
+        collection_result.evidence_kind.value,
+        request.attempt_number,
+        request.attempted_at.isoformat(),
+        request.repository_identity,
+        collection_result.collector_version,
+        collection_result.source_identity,
+        collection_result.outcome.value,
+        collection_result.response_status,
+        terminal.response_etag
+        if collection_result.outcome is GitHubCollectionOutcome.AVAILABLE
+        else None,
+        error.category if error is not None else None,
+        error.retryability if error is not None else None,
+        error.message if error is not None else None,
+        error.retry_after if error is not None else None,
+    )
+
+
+def _security_policy_snapshot_values(
+    request: GitHubRepositoryMetadataCollectionInput,
+    observation: GitHubSecurityPolicySourceObservation,
+) -> Tuple[object, ...]:
+    if (
+        observation.raw_response_bytes is None
+        or observation.integrity_digest is None
+    ):
+        raise _error("verification_failed")
+    return (
+        _security_source_snapshot_id(request, observation.sequence),
+        request.collection_attempt_id,
+        sqlite3.Binary(observation.raw_response_bytes),
+        "utf-8" if observation.raw_snapshot is not None else "binary",
+        "application/json",
+        observation.integrity_digest,
+        observation.source_object_id,
+        observation.response_etag,
+    )
+
+
+def _security_policy_observation_values(
+    request: GitHubRepositoryMetadataCollectionInput,
+    observation: GitHubSecurityPolicySourceObservation,
+) -> Tuple[object, ...]:
+    return (
+        _security_observation_id(request, observation.sequence),
+        request.collection_attempt_id,
+        observation.sequence,
+        observation.role,
+        observation.source_identity,
+        observation.response_status,
+        observation.response_etag,
+        observation.error.category if observation.error is not None else None,
+        _security_source_snapshot_id(request, observation.sequence)
+        if observation.raw_response_bytes is not None
+        else None,
+    )
+
+
+def _security_policy_evidence_values(
+    evidence: EvidenceRecord,
+) -> Tuple[object, ...]:
+    is_available = evidence.collection_outcome is EvidenceOutcome.AVAILABLE
+    return (
+        evidence.evidence_id,
+        evidence.assessment_id,
+        evidence.evidence_kind.value,
+        evidence.source_identity,
+        evidence.collector_name,
+        evidence.collector_version,
+        evidence.collection_attempt_id,
+        evidence.attempt_number,
+        evidence.attempted_at.isoformat(),
+        evidence.collection_outcome.value,
+        evidence.freshness_basis,
+        evidence.freshness_status_at_collection.value,
+        evidence.evidence_schema_version,
+        _SECURITY_POLICY_NORMALIZATION_VERSION,
+        _canonical_provenance_json(evidence.provenance),
+        evidence.provenance[0][1] if is_available else None,
+        None,
+        None,
+        None,
+        int(evidence.value) if is_available else None,
+        evidence.raw_snapshot,
+        evidence.integrity_digest,
+        evidence.unavailability_reason,
+        evidence.error_category,
+    )
+
+
 def _latest_commit_evidence_values(
     evidence: EvidenceRecord,
 ) -> Tuple[object, ...]:
@@ -1768,6 +2409,7 @@ def _latest_commit_evidence_values(
         None,
         None,
         evidence.value.isoformat() if is_available else None,
+        None,
         evidence.raw_snapshot,
         evidence.integrity_digest,
         evidence.unavailability_reason,
@@ -1796,6 +2438,7 @@ def _license_evidence_values(evidence: EvidenceRecord) -> Tuple[object, ...]:
         evidence.provenance[0][1] if is_available else None,
         None,
         evidence.value.value if is_available else None,
+        None,
         None,
         evidence.raw_snapshot,
         evidence.integrity_digest,
@@ -1828,6 +2471,7 @@ def _evidence_values(evidence: EvidenceRecord) -> Tuple[object, ...]:
             else None
         ),
         int(evidence.value) if is_available else None,
+        None,
         None,
         None,
         evidence.raw_snapshot,
@@ -1928,6 +2572,8 @@ def _evidence_from_row(row: sqlite3.Row) -> EvidenceRecord:
         if evidence_kind is EvidenceKind.LICENSE_STATUS
         else _LATEST_COMMIT_NORMALIZATION_VERSION
         if evidence_kind is EvidenceKind.LATEST_COMMIT_TIMESTAMP
+        else _SECURITY_POLICY_NORMALIZATION_VERSION
+        if evidence_kind is EvidenceKind.SECURITY_POLICY_PRESENT
         else None
     )
     if row["normalization_version"] != expected_normalization_version:
@@ -1942,6 +2588,7 @@ def _evidence_from_row(row: sqlite3.Row) -> EvidenceRecord:
                 or archived_value not in (0, 1)
                 or row["license_status_value"] is not None
                 or row["latest_commit_timestamp_value"] is not None
+                or row["security_policy_present_value"] is not None
             ):
                 raise ValueError("stored archived value is invalid")
             value = bool(archived_value)
@@ -1949,6 +2596,7 @@ def _evidence_from_row(row: sqlite3.Row) -> EvidenceRecord:
             if (
                 row["archived_value"] is not None
                 or row["latest_commit_timestamp_value"] is not None
+                or row["security_policy_present_value"] is not None
             ):
                 raise ValueError("stored license value is invalid")
             value = LicenseStatus(row["license_status_value"])
@@ -1956,11 +2604,23 @@ def _evidence_from_row(row: sqlite3.Row) -> EvidenceRecord:
             if (
                 row["archived_value"] is not None
                 or row["license_status_value"] is not None
+                or row["security_policy_present_value"] is not None
             ):
                 raise ValueError("stored latest commit value is invalid")
             value = _parse_stored_datetime(
                 row["latest_commit_timestamp_value"]
             )
+        elif evidence_kind is EvidenceKind.SECURITY_POLICY_PRESENT:
+            security_value = row["security_policy_present_value"]
+            if (
+                type(security_value) is not int
+                or security_value not in (0, 1)
+                or row["archived_value"] is not None
+                or row["license_status_value"] is not None
+                or row["latest_commit_timestamp_value"] is not None
+            ):
+                raise ValueError("stored security policy value is invalid")
+            value = bool(security_value)
         else:
             raise ValueError("stored evidence kind is unsupported")
     else:
@@ -2472,6 +3132,260 @@ def _verify_latest_commit_collection_after_reopen(
         _close_safely(connection)
 
 
+def _security_policy_collection_result_from_rows(
+    attempt: sqlite3.Row,
+    observation_rows: Tuple[sqlite3.Row, ...],
+    snapshot_rows: Tuple[sqlite3.Row, ...],
+) -> GitHubSecurityPolicyPresenceCollectionResult:
+    request = GitHubRepositoryMetadataCollectionInput(
+        assessment_id=attempt["assessment_id"],
+        repository_identity=attempt["repository_identity"],
+        collection_attempt_id=attempt["collection_attempt_id"],
+        attempt_number=attempt["attempt_number"],
+        attempted_at=_parse_stored_datetime(attempt["attempted_at"]),
+    )
+    snapshot_by_id = {}
+    for snapshot in snapshot_rows:
+        snapshot_id = snapshot["source_snapshot_id"]
+        if snapshot_id in snapshot_by_id:
+            raise ValueError("duplicate security source snapshot")
+        response_bytes = snapshot["response_bytes"]
+        if type(response_bytes) is not bytes:
+            raise ValueError("security source response must be bytes")
+        try:
+            response_bytes.decode("utf-8")
+            expected_encoding = "utf-8"
+        except UnicodeDecodeError:
+            expected_encoding = "binary"
+        if (
+            snapshot["encoding"] != expected_encoding
+            or snapshot["media_type"] != "application/json"
+            or snapshot["integrity_digest"]
+            != hashlib.sha256(response_bytes).hexdigest()
+        ):
+            raise ValueError("security source snapshot verification failed")
+        snapshot_by_id[snapshot_id] = snapshot
+
+    result_error = None
+    if attempt["error_category"] is not None:
+        result_error = GitHubRepositoryMetadataCollectionError(
+            category=attempt["error_category"],
+            retryability=attempt["error_retryability"],
+            message=attempt["error_message"],
+            retry_after=attempt["retry_after"],
+        )
+    observations = []
+    referenced_snapshot_ids = set()
+    for row in observation_rows:
+        sequence = row["request_sequence"]
+        if row["source_observation_id"] != _security_observation_id(
+            request, sequence
+        ):
+            raise ValueError("security observation identity is invalid")
+        snapshot_id = row["source_snapshot_id"]
+        raw_response_bytes = None
+        raw_snapshot = None
+        integrity_digest = None
+        source_object_id = None
+        if snapshot_id is not None:
+            if snapshot_id != _security_source_snapshot_id(request, sequence):
+                raise ValueError("security snapshot identity is invalid")
+            snapshot = snapshot_by_id.get(snapshot_id)
+            if snapshot is None:
+                raise ValueError("security observation snapshot is missing")
+            referenced_snapshot_ids.add(snapshot_id)
+            raw_response_bytes = snapshot["response_bytes"]
+            try:
+                raw_snapshot = raw_response_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                raw_snapshot = None
+            integrity_digest = snapshot["integrity_digest"]
+            source_object_id = snapshot["repository_source_id"]
+            if snapshot["response_etag"] != row["response_etag"]:
+                raise ValueError("security observation ETag is inconsistent")
+        observation_error = None
+        if row["error_category"] is not None:
+            if result_error is None or row["error_category"] != result_error.category:
+                raise ValueError("security observation error is inconsistent")
+            observation_error = result_error
+        observations.append(
+            GitHubSecurityPolicySourceObservation(
+                sequence=sequence,
+                role=row["source_role"],
+                source_identity=row["source_identity"],
+                response_status=row["response_status"],
+                source_object_id=source_object_id,
+                raw_response_bytes=raw_response_bytes,
+                raw_snapshot=raw_snapshot,
+                integrity_digest=integrity_digest,
+                response_etag=row["response_etag"],
+                error=observation_error,
+            )
+        )
+    if referenced_snapshot_ids != set(snapshot_by_id):
+        raise ValueError("unreferenced security source snapshot")
+    observation_tuple = tuple(observations)
+    if not observation_tuple:
+        raise ValueError("security attempt requires observations")
+    outcome = GitHubCollectionOutcome(attempt["outcome"])
+    repository_source_id = observation_tuple[0].source_object_id
+    security_policy_present = None
+    policy_scope = None
+    policy_path = None
+    policy_blob_sha = None
+    if outcome is GitHubCollectionOutcome.AVAILABLE:
+        terminal = observation_tuple[-1]
+        security_policy_present = terminal.response_status == 200
+        if security_policy_present:
+            policy_scope = (
+                "repository_local"
+                if terminal.role.startswith("target_")
+                else "inherited_default"
+            )
+            policy_path = {
+                "target_dotgithub": ".github/SECURITY.md",
+                "target_root": "SECURITY.md",
+                "target_docs": "docs/SECURITY.md",
+                "default_dotgithub": ".github/SECURITY.md",
+                "default_root": "SECURITY.md",
+                "default_docs": "docs/SECURITY.md",
+            }.get(terminal.role)
+            policy_blob_sha = terminal.source_object_id
+    return GitHubSecurityPolicyPresenceCollectionResult(
+        request=request,
+        outcome=outcome,
+        evidence_kind=EvidenceKind(attempt["evidence_kind"]),
+        collector_version=attempt["collector_version"],
+        source_identity=attempt["source_identity"],
+        repository_source_id=repository_source_id,
+        security_policy_present=security_policy_present,
+        policy_scope=policy_scope,
+        policy_path=policy_path,
+        policy_blob_sha=policy_blob_sha,
+        observations=observation_tuple,
+        response_status=attempt["response_status"],
+        error=result_error,
+    )
+
+
+def _verify_security_policy_collection_after_reopen(
+    filename: str,
+    collection_attempt_id: str,
+) -> Tuple[
+    GitHubSecurityPolicyPresenceCollectionResult,
+    Optional[EvidenceRecord],
+]:
+    connection = _connect(filename)
+    try:
+        attempt_rows = connection.execute(
+            "SELECT {} FROM collection_attempts "
+            "WHERE collection_attempt_id = ?".format(
+                ", ".join(_ATTEMPT_COLUMNS)
+            ),
+            (collection_attempt_id,),
+        ).fetchall()
+        if len(attempt_rows) != 1:
+            raise _error("verification_failed")
+        attempt = attempt_rows[0]
+        try:
+            _, request_result = _read_request(
+                connection, attempt["assessment_id"]
+            )
+        except SQLitePersistenceError as exc:
+            if exc.category == "request_not_found":
+                raise _error("verification_failed") from None
+            raise
+        if (
+            request_result.normalized_repository_identity
+            != attempt["repository_identity"]
+        ):
+            raise ValueError(
+                "security collection repository does not match request"
+            )
+        observation_rows = tuple(
+            connection.execute(
+                "SELECT {} FROM github_source_observations "
+                "WHERE collection_attempt_id = ? ORDER BY request_sequence".format(
+                    ", ".join(_SOURCE_OBSERVATION_COLUMNS)
+                ),
+                (collection_attempt_id,),
+            ).fetchall()
+        )
+        snapshot_rows = tuple(
+            connection.execute(
+                "SELECT {} FROM github_source_snapshots "
+                "WHERE collection_attempt_id = ? ORDER BY source_snapshot_id".format(
+                    ", ".join(_SOURCE_SNAPSHOT_COLUMNS)
+                ),
+                (collection_attempt_id,),
+            ).fetchall()
+        )
+        evidence_rows = tuple(
+            connection.execute(
+                "SELECT {} FROM evidence_records "
+                "WHERE collection_attempt_id = ?".format(
+                    ", ".join(_EVIDENCE_COLUMNS)
+                ),
+                (collection_attempt_id,),
+            ).fetchall()
+        )
+        reconstructed = _security_policy_collection_result_from_rows(
+            attempt, observation_rows, snapshot_rows
+        )
+        if _security_policy_attempt_values(reconstructed) != _row_values(
+            attempt, _ATTEMPT_COLUMNS
+        ):
+            raise ValueError("security attempt does not reconstruct exactly")
+        for observation, row in zip(reconstructed.observations, observation_rows):
+            if _security_policy_observation_values(
+                reconstructed.request, observation
+            ) != _row_values(row, _SOURCE_OBSERVATION_COLUMNS):
+                raise ValueError("security observation does not reconstruct")
+            if observation.raw_response_bytes is not None:
+                expected_snapshot = _security_policy_snapshot_values(
+                    reconstructed.request, observation
+                )
+                matching = [
+                    snapshot
+                    for snapshot in snapshot_rows
+                    if snapshot["source_snapshot_id"]
+                    == expected_snapshot[0]
+                ]
+                if (
+                    len(matching) != 1
+                    or _row_values(matching[0], _SOURCE_SNAPSHOT_COLUMNS)
+                    != tuple(expected_snapshot)
+                ):
+                    raise ValueError("security snapshot does not reconstruct")
+
+        expected_evidence = _security_policy_expected_evidence(reconstructed)
+        if expected_evidence is None:
+            if evidence_rows:
+                raise ValueError("failed security attempt cannot have evidence")
+            evidence = None
+        else:
+            if len(evidence_rows) != 1:
+                raise ValueError("security outcome requires one evidence row")
+            evidence = _evidence_from_row(evidence_rows[0])
+            if (
+                evidence != expected_evidence
+                or _security_policy_evidence_values(evidence)
+                != _row_values(evidence_rows[0], _EVIDENCE_COLUMNS)
+            ):
+                raise ValueError("security evidence does not reconstruct")
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise ValueError("foreign key verification failed")
+        return reconstructed, evidence
+    except SQLitePersistenceError:
+        raise
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+        raise _error("verification_failed") from None
+    except sqlite3.Error:
+        raise _error("verification_failed") from None
+    finally:
+        _close_safely(connection)
+
+
 def persist_github_repository_metadata_collection(
     database_path: _DatabasePath,
     collection_result: GitHubRepositoryMetadataCollectionResult,
@@ -2791,6 +3705,128 @@ def persist_github_latest_commit_collection(
             stored_result.source_timestamp
             != expected_result.source_timestamp
         )
+    ):
+        raise _error("conflicting_replay" if replay else "verification_failed")
+    return stored_evidence
+
+
+def persist_github_security_policy_presence_collection(
+    database_path: _DatabasePath,
+    collection_result: GitHubSecurityPolicyPresenceCollectionResult,
+) -> Optional[EvidenceRecord]:
+    """Persist one terminal effective-security-policy collection outcome."""
+
+    filename = _database_filename(database_path)
+    expected_result = _validated_security_policy_collection_result(
+        collection_result
+    )
+    try:
+        expected_evidence = _security_policy_expected_evidence(expected_result)
+        expected_attempt_values = _security_policy_attempt_values(
+            expected_result
+        )
+        expected_snapshot_values = tuple(
+            _security_policy_snapshot_values(expected_result.request, item)
+            for item in expected_result.observations
+            if item.raw_response_bytes is not None
+        )
+        expected_observation_values = tuple(
+            _security_policy_observation_values(expected_result.request, item)
+            for item in expected_result.observations
+        )
+    except SQLitePersistenceError:
+        raise
+    except (TypeError, ValueError):
+        raise _error("invalid_input") from None
+    connection = _connect(filename)
+    replay = False
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        request_row, request_result = _read_request(
+            connection, expected_result.request.assessment_id
+        )
+        if (
+            request_result.normalized_repository_identity
+            != expected_result.request.repository_identity
+            or request_result.context is None
+            or request_result.context.assessment_id
+            != expected_result.request.assessment_id
+            or _row_values(request_row, _REQUEST_COLUMNS)
+            != _request_values(request_result)
+        ):
+            raise _error("invalid_input")
+        existing_attempts = connection.execute(
+            "SELECT {} FROM collection_attempts "
+            "WHERE collection_attempt_id = ?".format(
+                ", ".join(_ATTEMPT_COLUMNS)
+            ),
+            (expected_result.request.collection_attempt_id,),
+        ).fetchall()
+        if existing_attempts:
+            if len(existing_attempts) != 1:
+                raise _error("verification_failed")
+            replay = True
+            _rollback_safely(connection)
+        else:
+            reused_number = connection.execute(
+                "SELECT collection_attempt_id FROM collection_attempts "
+                "WHERE assessment_id = ? AND evidence_kind = ? "
+                "AND attempt_number = ?",
+                (
+                    expected_result.request.assessment_id,
+                    expected_result.evidence_kind.value,
+                    expected_result.request.attempt_number,
+                ),
+            ).fetchall()
+            if reused_number:
+                raise _error("conflicting_replay")
+            _insert_values(
+                connection,
+                "collection_attempts",
+                _ATTEMPT_COLUMNS,
+                expected_attempt_values,
+            )
+            for values in expected_snapshot_values:
+                _insert_values(
+                    connection,
+                    "github_source_snapshots",
+                    _SOURCE_SNAPSHOT_COLUMNS,
+                    values,
+                )
+            for values in expected_observation_values:
+                _insert_values(
+                    connection,
+                    "github_source_observations",
+                    _SOURCE_OBSERVATION_COLUMNS,
+                    values,
+                )
+            if expected_evidence is not None:
+                _insert_values(
+                    connection,
+                    "evidence_records",
+                    _EVIDENCE_COLUMNS,
+                    _security_policy_evidence_values(expected_evidence),
+                )
+            connection.commit()
+    except SQLitePersistenceError:
+        _rollback_safely(connection)
+        raise
+    except sqlite3.Error:
+        _rollback_safely(connection)
+        raise _error("write_failed") from None
+    finally:
+        _close_safely(connection)
+
+    stored_result, stored_evidence = (
+        _verify_security_policy_collection_after_reopen(
+            filename, expected_result.request.collection_attempt_id
+        )
+    )
+    if stored_result != expected_result or stored_evidence != expected_evidence:
+        raise _error("conflicting_replay" if replay else "verification_failed")
+    if (
+        stored_result.request.attempted_at.isoformat()
+        != expected_result.request.attempted_at.isoformat()
     ):
         raise _error("conflicting_replay" if replay else "verification_failed")
     return stored_evidence
