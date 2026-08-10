@@ -1,12 +1,13 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** Days 1 through 11 established the engagement, domain and
-> failure models, request validation, all four public GitHub evidence
-> collectors, and their schema-v4 SQLite persistence. Day 12 adds strict
-> read-only loading of the complete durable evidence set and connects it to the
-> existing deterministic evaluator. Metrics and findings remain transient;
-> workflow orchestration, audit, reports, APIs, model use, and human decisions
-> remain unimplemented.
+> **Current status:** Days 1 through 12 established the engagement, request and
+> domain contracts, all four public GitHub evidence collectors, schema-v4
+> SQLite persistence, and strict durable evaluation loading. Day 13 adds one
+> narrow execution boundary that validates and persists a request, collects and
+> persists the four evidence kinds, and returns the deterministic assessment
+> result. Metrics and findings remain transient; customer-facing interaction,
+> retry and reassessment, audit, reports, model use, and human decisions remain
+> unimplemented.
 
 ## Customer Problem
 
@@ -310,10 +311,39 @@ Completed on Day 12:
 The read boundary never creates or migrates a database, and evaluation does
 not persist metrics or policy findings.
 
+Completed on Day 13:
+
+* frozen `AssessmentExecutionInput`, `AssessmentExecutionFailure`, and
+  `AssessmentExecutionResult` contracts plus `AssessmentExecutionStatus`
+  represent one terminal one-shot execution;
+* `execute_assessment` validates the submitted request, persists and verifies
+  a valid request before network activity, then collects and persists repository
+  archived, license status, latest commit timestamp, and security policy
+  presence in canonical evaluator order;
+* each evidence kind uses attempt number 1 and a stable distinct SHA256 attempt
+  identifier derived from the assessment ID, evidence kind, attempt number,
+  and versioned execution namespace;
+* every terminal collection outcome passes its existing transaction and
+  close-and-reopen verification boundary before the next collector starts;
+  available and unavailable evidence continue, while the first failed outcome
+  is persisted and stops execution without evaluation;
+* only a complete four-kind authoritative evidence set reaches
+  `evaluate_persisted_assessment`, which runs once and returns transient metrics
+  and policy findings;
+* exact replay creates no duplicate attempts, snapshots, observations, or
+  evidence, while changed remote evidence under the same attempt identity
+  conflicts without mutation or evaluation; and
+* 11 focused Day 13 tests pass, with all 230 repository tests passing.
+
+Day 13 does not change SQLite schema version 4. It is intentionally one shot:
+retry, resume, reassessment, and current-evidence selection remain outside the
+boundary.
+
 Not yet implemented:
 
-* workflow orchestration around the durable evaluation boundary;
-* audit history, assessment APIs, generated reports, and model integration;
+* a customer-facing assessment interaction boundary;
+* retry, resume, reassessment, and current-evidence selection;
+* audit history, generated reports, and model integration;
 * human decisions and review interfaces; and
 * production storage and deployment, observability, and prototype evaluation.
 
@@ -322,8 +352,8 @@ Not yet implemented:
 | Week | Milestone | Status |
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
-| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy evaluation, result assembly, all four SQLite evidence kinds, and durable evaluation loading verified; workflow remains planned |
-| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors, persistence slices, and durable deterministic evaluation integration verified; reporting, review, audit, and observability remain planned |
+| 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy evaluation, all four durable evidence kinds, verified loading, and one-shot execution are complete |
+| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors and one complete one-shot assessment execution are verified; customer interaction, reporting, review, audit, and observability remain planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
 Milestones describe intended sequencing and are not claims of completed
@@ -388,9 +418,9 @@ The Python package now contains dependency-free transient request validation,
 public GitHub archived-status, license-status, latest-commit, and effective
 security-policy collection, deterministic evaluation and in-memory result
 assembly, concrete SQLite persistence for validated requests and all four
-evidence kinds, and strict read-only durable evaluation loading. Metrics and
-policy findings remain transient. It is library code rather than an API or
-deployed application.
+evidence kinds, strict read-only durable evaluation loading, and one-shot
+assessment execution. Metrics and policy findings remain transient. It is
+library code rather than an API or deployed application.
 Run its tests from the repository root with:
 
 ```bash
@@ -408,6 +438,6 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_12_durable_evidence_loading_and_evaluation.md](plans/day_12_durable_evidence_loading_and_evaluation.md),
+[plans/day_13_one_shot_assessment_execution.md](plans/day_13_one_shot_assessment_execution.md),
 with its durable storage decision recorded in
 [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md).

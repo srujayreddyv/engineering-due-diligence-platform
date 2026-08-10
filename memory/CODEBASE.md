@@ -53,10 +53,13 @@ evaluation, in-memory assessment result assembly, and SQLite persistence for
 validated requests and terminal outcomes from all four collectors. A strict
 read-only SQLite loader reconstructs the complete four-kind authoritative
 evidence set and passes it to the unchanged deterministic evaluator; metrics
-and policy findings remain transient. GitHub license presence means detected
-metadata only, not legal or compatibility analysis. Security-policy presence
-includes repository-local `SECURITY.md` files and inherited defaults from the
-owner's public `.github` repository.
+and policy findings remain transient. One one-shot execution boundary now
+connects request validation, request persistence, the four collectors and
+their persistence functions, durable evidence loading, and deterministic
+evaluation. GitHub license presence means detected metadata only, not legal or
+compatibility analysis. Security-policy presence includes repository-local
+`SECURITY.md` files and inherited defaults from the owner's public `.github`
+repository.
 
 SQLite schema version 4 stores all four evidence kinds in separate typed
 columns and adds ordered GitHub source observations plus multiple source
@@ -72,6 +75,15 @@ schema-v4 database, reads one consistent transaction snapshot, requires exactly
 one record for each evaluator-required kind, and fails closed on missing,
 ambiguous, corrupt, or mismatched evidence.
 
+The one-shot workflow uses deterministic versioned SHA256 collection-attempt
+identifiers derived from assessment ID, evidence kind, and attempt number 1.
+It persists and reopen-verifies each terminal result before starting the next
+collector. Available and unavailable evidence continue; the first failed
+outcome stops without evaluation. Exact replay is idempotent, while changed
+remote content under the same identity conflicts without mutation. The
+workflow adds no durable workflow state, retry, reassessment, current-evidence
+selection, or derived-result persistence, and SQLite remains schema version 4.
+
 FastAPI, Pydantic, PostgreSQL, model integration, OpenTelemetry, Docker Compose,
 and Grafana-compatible telemetry remain planned or deferred rather than
 implemented. Technology decisions change only through explicit architectural
@@ -82,7 +94,7 @@ database decision.
 
 * `src/engineering_due_diligence/` contains the Python library boundaries for
   models, deterministic evaluation, request validation, GitHub collection,
-  assessment assembly, and SQLite persistence.
+  assessment assembly, SQLite persistence, and one-shot execution.
 * `tests/` contains the automated `unittest` suite, including focused real-file
   SQLite persistence tests.
 * `docs/` contains project, engagement, ADR, and checkpoint documentation.

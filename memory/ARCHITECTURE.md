@@ -104,6 +104,27 @@ from its durable collection attempt and complete source material before it can
 enter the unchanged deterministic evaluator. Metrics and policy findings remain
 transient and no schema change is required for this integration.
 
+## One-Shot Execution Boundary
+
+The first application workflow is a concrete one-shot library boundary. It
+validates the submitted request, persists and reopen-verifies a valid request,
+then collects and persists repository archived status, license status, latest
+commit timestamp, and security policy presence in canonical evaluator order.
+Every terminal outcome crosses its existing transaction and close-and-reopen
+authority boundary before the next collector begins.
+
+Collection attempt identities are deterministic versioned SHA256 values based
+on assessment ID, evidence kind, and attempt number 1. Available and
+unavailable evidence continue the workflow. The first retryable or
+nonretryable failure is persisted and stops later collection and evaluation.
+Only the complete verified four-kind evidence set enters deterministic
+evaluation, and metrics and findings remain transient.
+
+This boundary is not a durable workflow engine. It adds no schema change,
+workflow-state record, retry, resume, reassessment, or current-evidence
+selection. Exact replay is idempotent; changed collection content under an
+existing attempt identity conflicts without mutation.
+
 ## Initial Deployment Shape
 
 The first version is a modular backend application rather than a distributed

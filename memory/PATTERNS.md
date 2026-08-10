@@ -105,11 +105,25 @@ does not substitute for the required deterministic validity gate.
 
 ## Workflow Pattern
 
-Workflow stages are explicit and persisted.
+For the concrete one-shot assessment boundary:
 
-A completed stage should not be repeated unnecessarily after interruption.
+1. Validate before opening persistence or making a network call.
+2. Persist and verify a valid request before collection.
+3. Collect in canonical evaluator order with deterministic, versioned attempt
+   identities and attempt number 1 per evidence kind.
+4. Persist and reopen-verify each terminal collection outcome before starting
+   the next collector.
+5. Continue through available and unavailable evidence; persist the first
+   retryable or nonretryable failure and stop without later collection or
+   evaluation.
+6. Evaluate exactly once only after durable loading verifies all four required
+   evidence records.
+7. Accept exact replay without duplicate durable rows and reject changed
+   content under an existing attempt identity without mutation.
 
-Failures are categorized as retryable or nonretryable.
+The one-shot boundary persists authoritative request and evidence outputs, not
+workflow state. Retry, resume, reassessment, and current-evidence selection
+require separate explicit rules and must not be inferred from this pattern.
 
 ## Testing Pattern
 
