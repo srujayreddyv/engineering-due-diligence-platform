@@ -116,14 +116,34 @@ For the concrete one-shot assessment boundary:
 5. Continue through available and unavailable evidence; persist the first
    retryable or nonretryable failure and stop without later collection or
    evaluation.
-6. Evaluate exactly once only after durable loading verifies all four required
-   evidence records.
+6. Capture one aware evaluation timestamp and evaluate exactly once only after
+   durable loading verifies all four required evidence records; pass that exact
+   timestamp unchanged to transient evaluation.
 7. Accept exact replay without duplicate durable rows and reject changed
    content under an existing attempt identity without mutation.
 
 The one-shot boundary persists authoritative request and evidence outputs, not
 workflow state. Retry, resume, reassessment, and current-evidence selection
 require separate explicit rules and must not be inferred from this pattern.
+
+## Command-Line Pattern
+
+For the minimal assessment command:
+
+1. Require the full submitted business context and caller-supplied on-disk
+   database path; do not expose internal identifiers, attempt numbers,
+   timestamps, or versions as overrides.
+2. Generate the assessment ID plus aware UTC submission and collection
+   timestamps through private patchable seams, while leaving evaluation-time
+   ownership with the workflow.
+3. Construct existing inputs and call the workflow exactly once; serialization
+   must not reimplement domain behavior.
+4. Emit versioned machine-readable JSON with canonical evidence, metric, and
+   policy ordering, ordered provenance entries, no complete source responses,
+   no aggregate recommendation, and an explicit absent human decision.
+5. Map usage, validation, collection, persistence or verification, internal,
+   and complete outcomes to stable exit codes, and expose only constant safe
+   internal failure output when unexpected execution or serialization fails.
 
 ## Testing Pattern
 

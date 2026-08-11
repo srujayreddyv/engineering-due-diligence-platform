@@ -1,12 +1,12 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** Days 1 through 12 established the engagement, request and
+> **Current status:** Days 1 through 13 established the engagement, request and
 > domain contracts, all four public GitHub evidence collectors, schema-v4
-> SQLite persistence, and strict durable evaluation loading. Day 13 adds one
-> narrow execution boundary that validates and persists a request, collects and
-> persists the four evidence kinds, and returns the deterministic assessment
-> result. Metrics and findings remain transient; customer-facing interaction,
-> retry and reassessment, audit, reports, model use, and human decisions remain
+> SQLite persistence, strict durable evaluation loading, and one-shot
+> execution. Day 14 adds a dependency-free command-line interface that accepts
+> one assessment request and returns versioned machine-readable evidence,
+> metrics, and policy findings. Metrics and findings remain transient; retry
+> and reassessment, audit, reports, model use, and human decisions remain
 > unimplemented.
 
 ## Customer Problem
@@ -339,12 +339,41 @@ Day 13 does not change SQLite schema version 4. It is intentionally one shot:
 retry, resume, reassessment, and current-evidence selection remain outside the
 boundary.
 
+Completed on Day 14:
+
+* `PYTHONPATH=src python3 -m engineering_due_diligence.cli assess` is the one
+  customer-facing command and requires an on-disk database path, public GitHub
+  repository URL, intended use, environment, criticality, expected lifetime,
+  risk tolerance, submitting actor ID, and responsible reviewer actor ID;
+* the CLI privately generates `assessment-<lowercase UUID4>`, an aware UTC
+  submission timestamp, and an aware UTC collection timestamp, while the
+  workflow captures `evaluated_at` only after all four authoritative evidence
+  records exist;
+* `execute_assessment` runs once and produces one
+  `assessment-cli-output.v1` JSON document containing assessment context, four
+  canonical evidence summaries, four deterministic metrics, and four policy
+  findings without exposing complete GitHub source responses;
+* the output preserves evidence provenance order, does not create an aggregate
+  approval or rejection recommendation, and explicitly reports
+  `human_decision.status` as `not_implemented`;
+* exit codes are 0 for a complete assessment, 1 for an unexpected internal
+  failure, 2 for command usage, 3 for request validation, 4 for collection
+  failure, and 5 for persistence or durable verification failure;
+* known outcomes are machine-readable, while persistence and unexpected
+  failures expose only sanitized categories and constant safe messages without
+  traceback, SQLite, path, credential, transport, or source-body content; and
+* eight focused CLI tests plus the corrected workflow timestamp tests pass,
+  with all 242 repository tests passing.
+
+Day 14 does not change SQLite schema version 4. The interface remains a
+synchronous one-shot command: it does not retry, resume, reassess, persist
+derived results, generate a report, or record a human decision.
+
 Not yet implemented:
 
-* a customer-facing assessment interaction boundary;
 * retry, resume, reassessment, and current-evidence selection;
 * audit history, generated reports, and model integration;
-* human decisions and review interfaces; and
+* human review and decision recording; and
 * production storage and deployment, observability, and prototype evaluation.
 
 ## Four Week Milestones
@@ -353,7 +382,7 @@ Not yet implemented:
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
 | 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy evaluation, all four durable evidence kinds, verified loading, and one-shot execution are complete |
-| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors and one complete one-shot assessment execution are verified; customer interaction, reporting, review, audit, and observability remain planned |
+| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors, one complete one-shot assessment execution, and a minimal CLI are verified; reporting, review, audit, and observability remain planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
 Milestones describe intended sequencing and are not claims of completed
@@ -419,8 +448,9 @@ public GitHub archived-status, license-status, latest-commit, and effective
 security-policy collection, deterministic evaluation and in-memory result
 assembly, concrete SQLite persistence for validated requests and all four
 evidence kinds, strict read-only durable evaluation loading, and one-shot
-assessment execution. Metrics and policy findings remain transient. It is
-library code rather than an API or deployed application.
+assessment execution. A minimal command-line interface exposes that workflow
+as versioned JSON. Metrics and policy findings remain transient; there is no
+HTTP API or deployed application.
 Run its tests from the repository root with:
 
 ```bash
@@ -438,6 +468,6 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The current active plan is
-[plans/day_13_one_shot_assessment_execution.md](plans/day_13_one_shot_assessment_execution.md),
+[plans/day_14_minimal_assessment_cli.md](plans/day_14_minimal_assessment_cli.md),
 with its durable storage decision recorded in
 [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md).

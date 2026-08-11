@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -61,6 +61,12 @@ def _require_aware_datetime(field_name: str, value: object) -> None:
         raise ValueError("{} must be timezone-aware".format(field_name))
 
 
+def _current_evaluation_time() -> datetime:
+    """Return the aware UTC time used for transient evaluation."""
+
+    return datetime.now(timezone.utc)
+
+
 def _collection_attempt_id(
     assessment_id: str, evidence_kind: EvidenceKind
 ) -> str:
@@ -86,7 +92,6 @@ class AssessmentExecutionInput:
 
     request: AssessmentRequestInput
     collection_attempted_at: datetime
-    evaluated_at: datetime
 
     def __post_init__(self) -> None:
         if type(self.request) is not AssessmentRequestInput:
@@ -94,7 +99,6 @@ class AssessmentExecutionInput:
         _require_aware_datetime(
             "collection_attempted_at", self.collection_attempted_at
         )
-        _require_aware_datetime("evaluated_at", self.evaluated_at)
 
 
 @dataclass(frozen=True)
@@ -211,11 +215,13 @@ class AssessmentExecutionResult:
                     "complete execution requires one assessment and no failure"
                 )
             context = self.validation_result.context
+            evaluated_at = self.assessment_result.evaluated_at
+            _require_aware_datetime(
+                "assessment_result.evaluated_at", evaluated_at
+            )
             if (
                 context is None
                 or self.assessment_result.context != context
-                or self.assessment_result.evaluated_at
-                is not self.execution_input.evaluated_at
                 or tuple(
                     record.evidence_kind
                     for record in self.assessment_result.evidence_records
@@ -225,6 +231,19 @@ class AssessmentExecutionResult:
                     record.assessment_id
                     != self.execution_input.request.assessment_id
                     for record in self.assessment_result.evidence_records
+                )
+                or any(
+                    record.attempted_at.astimezone(timezone.utc)
+                    > evaluated_at.astimezone(timezone.utc)
+                    for record in self.assessment_result.evidence_records
+                )
+                or any(
+                    metric.calculated_at is not evaluated_at
+                    for metric in self.assessment_result.metric_results
+                )
+                or any(
+                    finding.evaluated_at is not evaluated_at
+                    for finding in self.assessment_result.policy_findings
                 )
             ):
                 raise ValueError(
@@ -331,10 +350,12 @@ def execute_assessment(
             assessment_result=None,
         )
 
+    evaluated_at = _current_evaluation_time()
+    _require_aware_datetime("evaluated_at", evaluated_at)
     assessment_result = evaluate_persisted_assessment(
         database_path,
         execution_input.request.assessment_id,
-        execution_input.evaluated_at,
+        evaluated_at,
     )
     return AssessmentExecutionResult(
         execution_input=execution_input,

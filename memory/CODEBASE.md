@@ -40,11 +40,11 @@ approval are outside the four week scope.
 
 ## Implemented Runtime
 
-The current implementation is dependency-free Python library code using the
-standard library, including `urllib` for bounded public GitHub requests and
-`sqlite3` for caller-supplied on-disk prototype persistence. Tests use
-`unittest` and real temporary SQLite files; collector tests patch the private
-transport seam and make no live network calls.
+The current implementation is dependency-free Python library and command-line
+code using the standard library, including `urllib` for bounded public GitHub
+requests and `sqlite3` for caller-supplied on-disk prototype persistence. Tests
+use `unittest` and real temporary SQLite files; collector tests patch the
+private transport seam and make no live network calls.
 
 Implemented boundaries include transient request validation, public GitHub
 repository-archived, license-status, latest-commit timestamp, and effective
@@ -60,6 +60,18 @@ evaluation. GitHub license presence means detected metadata only, not legal or
 compatibility analysis. Security-policy presence includes repository-local
 `SECURITY.md` files and inherited defaults from the owner's public `.github`
 repository.
+
+The minimal customer-facing boundary is
+`python -m engineering_due_diligence.cli assess`. It requires one database path
+and the complete submitted assessment context, privately generates a lowercase
+UUID4 assessment ID plus aware UTC submission and collection timestamps, and
+calls the one-shot workflow once. The workflow—not the CLI input—captures the
+aware evaluation timestamp only after all four authoritative evidence records
+exist. Versioned `assessment-cli-output.v1` JSON returns canonical evidence,
+metrics, and policy findings without complete GitHub response bodies or an
+aggregate recommendation, and explicitly states that the human decision is not
+implemented. Stable exit codes distinguish complete, internal, usage,
+validation, collection, and persistence or verification outcomes.
 
 SQLite schema version 4 stores all four evidence kinds in separate typed
 columns and adds ordered GitHub source observations plus multiple source
@@ -92,9 +104,9 @@ database decision.
 
 ## Repository Structure
 
-* `src/engineering_due_diligence/` contains the Python library boundaries for
-  models, deterministic evaluation, request validation, GitHub collection,
-  assessment assembly, SQLite persistence, and one-shot execution.
+* `src/engineering_due_diligence/` contains the Python boundaries for models,
+  deterministic evaluation, request validation, GitHub collection, assessment
+  assembly, SQLite persistence, one-shot execution, and the minimal CLI.
 * `tests/` contains the automated `unittest` suite, including focused real-file
   SQLite persistence tests.
 * `docs/` contains project, engagement, ADR, and checkpoint documentation.

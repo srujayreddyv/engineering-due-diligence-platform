@@ -120,10 +120,34 @@ nonretryable failure is persisted and stops later collection and evaluation.
 Only the complete verified four-kind evidence set enters deterministic
 evaluation, and metrics and findings remain transient.
 
+`collection_attempted_at` remains durable execution-input provenance; the CLI
+supplies it. The workflow captures `evaluated_at` through one private clock only
+after all four authoritative records exist and passes the exact aware value
+unchanged to the transient evaluator. Exact evidence replay may therefore be
+reevaluated at a later timestamp without database mutation; temporal violations
+still fail closed.
+
 This boundary is not a durable workflow engine. It adds no schema change,
 workflow-state record, retry, resume, reassessment, or current-evidence
 selection. Exact replay is idempotent; changed collection content under an
 existing attempt identity conflicts without mutation.
+
+## Command-Line Boundary
+
+The first customer-facing boundary is one dependency-free `assess` command. It
+owns generation of the assessment ID, submission timestamp, and collection
+timestamp, then delegates exactly once to the one-shot execution boundary. It
+does not duplicate validation, collection, persistence, metric, or policy
+logic.
+
+The command returns one versioned JSON document with submitted context,
+canonical evidence summaries, deterministic metrics, policy findings, and an
+explicit `not_implemented` human-decision status. Complete GitHub source
+responses remain only in SQLite. Stable exit codes distinguish usage,
+validation, collection, persistence or verification, unexpected internal, and
+complete outcomes; failure output is sanitized. This boundary adds no HTTP API,
+authentication, report generation, human-decision persistence, or schema
+change.
 
 ## Initial Deployment Shape
 

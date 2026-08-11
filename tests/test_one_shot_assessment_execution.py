@@ -91,7 +91,6 @@ def _execution_input(request=None):
     return AssessmentExecutionInput(
         request=request or _request(),
         collection_attempted_at=ATTEMPTED_AT,
-        evaluated_at=EVALUATED_AT,
     )
 
 
@@ -129,14 +128,18 @@ def _license_response():
     )
 
 
-def _latest_response(*, empty=False):
+def _latest_response(
+    *,
+    empty=False,
+    committer_date="2026-08-07T09:15:16-05:00",
+):
     payload = [] if empty else [
         {
             "sha": COMMIT_SHA,
             "url": REPOSITORY_ENDPOINT + "/commits/" + COMMIT_SHA,
             "commit": {
                 "author": {"date": "1999-01-01T00:00:00Z"},
-                "committer": {"date": "2026-08-07T09:15:16-05:00"},
+                "committer": {"date": committer_date},
             },
             "unrelated": {"preserved": True},
         }
@@ -177,11 +180,19 @@ def _security_policy_response():
     )
 
 
-def _successful_responses(*, latest_empty=False, archived=False):
+def _successful_responses(
+    *,
+    latest_empty=False,
+    archived=False,
+    latest_committer_date="2026-08-07T09:15:16-05:00",
+):
     return [
         _archived_response(archived=archived),
         _license_response(),
-        _latest_response(empty=latest_empty),
+        _latest_response(
+            empty=latest_empty,
+            committer_date=latest_committer_date,
+        ),
         _security_repository_response(),
         _security_policy_response(),
     ]
@@ -218,21 +229,30 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
     def tearDown(self):
         self.temporary_directory.cleanup()
 
-    def _execute(self, responses, execution_input=None):
+    def _execute(
+        self,
+        responses,
+        execution_input=None,
+        evaluation_time=EVALUATED_AT,
+    ):
         with patch(
             "engineering_due_diligence.github."
             "_get_public_github_repository",
             side_effect=responses,
-        ) as transport:
+        ) as transport, patch.object(
+            workflow,
+            "_current_evaluation_time",
+            return_value=evaluation_time,
+        ) as clock:
             result = execute_assessment(
                 self.database_path,
                 execution_input or _execution_input(),
             )
-        return result, transport
+        return result, transport, clock
 
     def test_contracts_are_frozen_and_reject_contradictory_results(self):
         execution_input = _execution_input()
-        invalid_result, _ = self._execute(
+        invalid_result, _, clock = self._execute(
             [],
             replace(
                 execution_input,
@@ -243,8 +263,18 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
             tuple(status.value for status in AssessmentExecutionStatus),
             ("invalid_request", "collection_failed", "complete"),
         )
+        self.assertFalse(hasattr(execution_input, "evaluated_at"))
+        self.assertIs(
+            execution_input.collection_attempted_at, ATTEMPTED_AT
+        )
+        with self.assertRaises(TypeError):
+            AssessmentExecutionInput(
+                request=execution_input.request,
+                collection_attempted_at=ATTEMPTED_AT,
+                evaluated_at=EVALUATED_AT,
+            )
         with self.assertRaises(FrozenInstanceError):
-            execution_input.evaluated_at = ATTEMPTED_AT
+            execution_input.collection_attempted_at = EVALUATED_AT
         with self.assertRaises(FrozenInstanceError):
             invalid_result.status = AssessmentExecutionStatus.COMPLETE
         with self.assertRaises(ValueError):
@@ -260,10 +290,11 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
                 failure=None,
                 assessment_result=None,
             )
+        clock.assert_not_called()
 
     def test_complete_execution_returns_four_verified_kinds(self):
         execution_input = _execution_input()
-        result, transport = self._execute(
+        result, transport, clock = self._execute(
             _successful_responses(), execution_input
         )
 
@@ -274,8 +305,31 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         self.assertIsNotNone(result.assessment_result)
         self.assertIs(
             result.assessment_result.evaluated_at,
-            execution_input.evaluated_at,
+            EVALUATED_AT,
         )
+        self.assertTrue(
+            all(
+                metric.calculated_at is EVALUATED_AT
+                for metric in result.assessment_result.metric_results
+            )
+        )
+        self.assertTrue(
+            all(
+                finding.evaluated_at is EVALUATED_AT
+                for finding in result.assessment_result.policy_findings
+            )
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "assessment_result.evaluated_at must be timezone-aware",
+        ):
+            replace(
+                result,
+                assessment_result=replace(
+                    result.assessment_result,
+                    evaluated_at=EVALUATED_AT.replace(tzinfo=None),
+                ),
+            )
         self.assertEqual(
             tuple(
                 record.evidence_kind
@@ -291,6 +345,7 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         self.assertEqual(len(result.assessment_result.metric_results), 4)
         self.assertEqual(len(result.assessment_result.policy_findings), 4)
         self.assertEqual(transport.call_count, 5)
+        clock.assert_called_once_with()
         self.assertEqual(
             _row_counts(self.database_path),
             {
@@ -303,7 +358,7 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         )
 
     def test_unavailable_evidence_continues_to_not_evaluable_finding(self):
-        result, transport = self._execute(
+        result, transport, clock = self._execute(
             _successful_responses(latest_empty=True)
         )
 
@@ -326,12 +381,13 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         self.assertIs(latest_metric.result_status, MetricStatus.UNAVAILABLE)
         self.assertIs(latest_finding.outcome, PolicyOutcome.NOT_EVALUABLE)
         self.assertEqual(transport.call_count, 5)
+        clock.assert_called_once_with()
 
     def test_invalid_request_returns_without_database_or_network_activity(self):
         invalid_input = _execution_input(
             _request(submitted_repository_locator="http://github.com/a/b")
         )
-        result, transport = self._execute([], invalid_input)
+        result, transport, clock = self._execute([], invalid_input)
 
         self.assertIs(
             result.status, AssessmentExecutionStatus.INVALID_REQUEST
@@ -341,6 +397,7 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         self.assertIsNone(result.assessment_result)
         self.assertFalse(self.database_path.exists())
         transport.assert_not_called()
+        clock.assert_not_called()
 
     def test_collection_order_ids_and_persistence_precede_next_collector(self):
         responses = _successful_responses()
@@ -365,7 +422,11 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
             "engineering_due_diligence.github."
             "_get_public_github_repository",
             side_effect=transport_side_effect,
-        ):
+        ), patch.object(
+            workflow,
+            "_current_evaluation_time",
+            return_value=EVALUATED_AT,
+        ) as clock:
             execute_assessment(self.database_path, _execution_input())
 
         self.assertEqual(
@@ -398,6 +459,7 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
             tuple(row[3] for row in attempts),
             (ATTEMPTED_AT.isoformat(),) * 4,
         )
+        clock.assert_called_once_with()
         self.assertEqual(len({row[1] for row in attempts}), 4)
         self.assertEqual(
             tuple(row[1] for row in attempts),
@@ -435,7 +497,11 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
                     workflow,
                     "evaluate_persisted_assessment",
                     side_effect=AssertionError("evaluation must not run"),
-                ) as evaluator:
+                ) as evaluator, patch.object(
+                    workflow,
+                    "_current_evaluation_time",
+                    side_effect=AssertionError("clock must not run"),
+                ) as clock:
                     result = execute_assessment(
                         database_path, _execution_input()
                     )
@@ -452,6 +518,7 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
                 self.assertIsNone(result.assessment_result)
                 self.assertEqual(transport.call_count, 3)
                 evaluator.assert_not_called()
+                clock.assert_not_called()
                 counts = _row_counts(database_path)
                 self.assertEqual(counts["collection_attempts"], 3)
                 self.assertEqual(counts["evidence_records"], 2)
@@ -469,24 +536,167 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
             "engineering_due_diligence.github."
             "_get_public_github_repository",
             side_effect=AssertionError("collection must not start"),
-        ) as transport:
+        ) as transport, patch.object(
+            workflow,
+            "_current_evaluation_time",
+            side_effect=AssertionError("clock must not run"),
+        ) as persistence_clock:
             with self.assertRaises(SQLitePersistenceError) as raised:
                 execute_assessment(":memory:", _execution_input())
         self.assertEqual(raised.exception.category, "invalid_database_path")
         transport.assert_not_called()
+        persistence_clock.assert_not_called()
 
         programmer_error = RuntimeError("programmer failure")
         with patch(
             "engineering_due_diligence.github."
             "_get_public_github_repository",
             side_effect=programmer_error,
-        ):
+        ), patch.object(
+            workflow,
+            "_current_evaluation_time",
+            side_effect=AssertionError("clock must not run"),
+        ) as programmer_clock:
             with self.assertRaises(RuntimeError) as programmer_raised:
                 execute_assessment(
                     Path(self.temporary_directory.name) / "programmer.sqlite3",
                     _execution_input(),
                 )
         self.assertIs(programmer_raised.exception, programmer_error)
+        programmer_clock.assert_not_called()
+
+    def test_commit_after_collection_start_before_evaluation_succeeds(self):
+        commit_timestamp = datetime(
+            2026, 8, 9, 17, 0, tzinfo=timezone.utc
+        )
+        self.assertGreater(commit_timestamp, ATTEMPTED_AT)
+        self.assertLess(commit_timestamp, EVALUATED_AT)
+
+        result, _, clock = self._execute(
+            _successful_responses(
+                latest_committer_date=commit_timestamp.isoformat()
+            )
+        )
+
+        self.assertIs(result.status, AssessmentExecutionStatus.COMPLETE)
+        latest = result.assessment_result.evidence_records[2]
+        self.assertEqual(latest.value, commit_timestamp)
+        self.assertIs(result.assessment_result.evaluated_at, EVALUATED_AT)
+        clock.assert_called_once_with()
+
+    def test_invalid_evaluation_clock_values_fail_closed(self):
+        real_evaluator = evaluate_persisted_assessment
+        for label, clock_value, message in (
+            (
+                "naive",
+                EVALUATED_AT.replace(tzinfo=None),
+                "evaluated_at must be timezone-aware",
+            ),
+            (
+                "before evidence",
+                ATTEMPTED_AT - timedelta(seconds=1),
+                "attempted_at is after calculated_at",
+            ),
+        ):
+            with self.subTest(label=label):
+                database_path = Path(self.temporary_directory.name) / (
+                    "invalid-clock-{}.sqlite3".format(
+                        label.replace(" ", "-")
+                    )
+                )
+                with patch(
+                    "engineering_due_diligence.github."
+                    "_get_public_github_repository",
+                    side_effect=_successful_responses(),
+                ), patch.object(
+                    workflow,
+                    "_current_evaluation_time",
+                    return_value=clock_value,
+                ) as clock, patch.object(
+                    workflow,
+                    "evaluate_persisted_assessment",
+                    wraps=real_evaluator,
+                ) as evaluator:
+                    with self.assertRaisesRegex(ValueError, message):
+                        execute_assessment(
+                            database_path, _execution_input()
+                        )
+
+                clock.assert_called_once_with()
+                if label == "naive":
+                    evaluator.assert_not_called()
+                else:
+                    evaluator.assert_called_once_with(
+                        database_path, ASSESSMENT_ID, clock_value
+                    )
+                self.assertEqual(
+                    _row_counts(database_path)["evidence_records"], 4
+                )
+
+    def test_later_transient_reevaluation_does_not_mutate_durable_evidence(self):
+        later_evaluated_at = EVALUATED_AT + timedelta(days=2)
+        responses = _successful_responses()
+        with patch(
+            "engineering_due_diligence.github."
+            "_get_public_github_repository",
+            side_effect=responses + responses,
+        ), patch.object(
+            workflow,
+            "_current_evaluation_time",
+            side_effect=(EVALUATED_AT, later_evaluated_at),
+        ) as clock:
+            first = execute_assessment(
+                self.database_path, _execution_input()
+            )
+            before = _database_dump(self.database_path)
+            second = execute_assessment(
+                self.database_path, _execution_input()
+            )
+            after = _database_dump(self.database_path)
+
+        self.assertEqual(
+            first.assessment_result.evidence_records,
+            second.assessment_result.evidence_records,
+        )
+        self.assertIs(first.assessment_result.evaluated_at, EVALUATED_AT)
+        self.assertIs(
+            second.assessment_result.evaluated_at, later_evaluated_at
+        )
+        self.assertNotEqual(
+            first.assessment_result.metric_results,
+            second.assessment_result.metric_results,
+        )
+        self.assertNotEqual(
+            first.assessment_result.policy_findings,
+            second.assessment_result.policy_findings,
+        )
+        self.assertEqual(before, after)
+        self.assertEqual(clock.call_count, 2)
+
+    def test_changed_collection_timestamp_conflicts_before_evaluation(self):
+        self._execute(_successful_responses())
+        before = _database_dump(self.database_path)
+        changed_input = replace(
+            _execution_input(),
+            collection_attempted_at=ATTEMPTED_AT + timedelta(seconds=1),
+        )
+
+        with patch(
+            "engineering_due_diligence.github."
+            "_get_public_github_repository",
+            side_effect=_successful_responses(),
+        ) as transport, patch.object(
+            workflow,
+            "_current_evaluation_time",
+            side_effect=AssertionError("clock must not run"),
+        ) as clock:
+            with self.assertRaises(SQLitePersistenceError) as raised:
+                execute_assessment(self.database_path, changed_input)
+
+        self.assertEqual(raised.exception.category, "conflicting_replay")
+        transport.assert_called_once_with(REPOSITORY_ENDPOINT)
+        clock.assert_not_called()
+        self.assertEqual(_database_dump(self.database_path), before)
 
     def test_exact_replay_is_idempotent(self):
         execution_input = _execution_input()
@@ -495,7 +705,11 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
             "engineering_due_diligence.github."
             "_get_public_github_repository",
             side_effect=responses + responses,
-        ) as transport:
+        ) as transport, patch.object(
+            workflow,
+            "_current_evaluation_time",
+            return_value=EVALUATED_AT,
+        ) as clock:
             first = execute_assessment(
                 self.database_path, execution_input
             )
@@ -508,6 +722,7 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(before, after)
         self.assertEqual(transport.call_count, 10)
+        self.assertEqual(clock.call_count, 2)
         self.assertEqual(_row_counts(self.database_path)["evidence_records"], 4)
 
     def test_changed_remote_evidence_conflicts_without_mutation_or_evaluation(self):
@@ -522,7 +737,11 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
             workflow,
             "evaluate_persisted_assessment",
             side_effect=AssertionError("evaluation must not run"),
-        ) as evaluator:
+        ) as evaluator, patch.object(
+            workflow,
+            "_current_evaluation_time",
+            side_effect=AssertionError("clock must not run"),
+        ) as clock:
             with self.assertRaises(SQLitePersistenceError) as raised:
                 execute_assessment(
                     self.database_path, _execution_input()
@@ -531,10 +750,25 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         self.assertEqual(raised.exception.category, "conflicting_replay")
         transport.assert_called_once_with(REPOSITORY_ENDPOINT)
         evaluator.assert_not_called()
+        clock.assert_not_called()
         self.assertEqual(_database_dump(self.database_path), before)
 
     def test_evaluation_runs_once_only_after_four_authoritative_records(self):
         real_evaluator = evaluate_persisted_assessment
+
+        def current_evaluation_time():
+            self.assertEqual(
+                _row_counts(self.database_path),
+                {
+                    "assessment_requests": 1,
+                    "collection_attempts": 4,
+                    "github_source_snapshots": 5,
+                    "evidence_records": 4,
+                    "github_source_observations": 2,
+                },
+            )
+            return EVALUATED_AT
+
         with patch(
             "engineering_due_diligence.github."
             "_get_public_github_repository",
@@ -543,7 +777,11 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
             workflow,
             "evaluate_persisted_assessment",
             wraps=real_evaluator,
-        ) as evaluator:
+        ) as evaluator, patch.object(
+            workflow,
+            "_current_evaluation_time",
+            side_effect=current_evaluation_time,
+        ) as clock:
             result = execute_assessment(
                 self.database_path, _execution_input()
             )
@@ -551,6 +789,7 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         evaluator.assert_called_once_with(
             self.database_path, ASSESSMENT_ID, EVALUATED_AT
         )
+        clock.assert_called_once_with()
         self.assertIs(result.status, AssessmentExecutionStatus.COMPLETE)
         self.assertEqual(_row_counts(self.database_path)["evidence_records"], 4)
 
