@@ -75,3 +75,26 @@ verification; the existing exact version 1 and 2 migration paths remain.
 Latest-commit source timestamp text is preserved separately from its normalized
 aware datetime and both must denote the same UTC instant. This does not
 introduce a general migration framework or generic evidence-value store.
+
+## D009: Direct Deterministic Review Is Sufficient for Prototype Decisions
+
+ADR 0002 selects the verified deterministic assessment as sufficient human
+review input for the prototype. A generated report remains a later presentation
+capability and is not a prerequisite for human decision authority.
+
+The planned boundary permits at most one immutable canonical assessment-level
+evaluation snapshot and at most one immutable human decision per assessment.
+The snapshot references the existing request and authoritative evidence,
+preserves the complete ordered metric and policy result plus exact evaluation
+time and versions, and receives its own deterministic assessment-level
+identity. A metric, finding, or policy-evaluation identifier is too narrow for
+that purpose.
+
+The allowed decisions are approve, approve with conditions, needs more
+information, and reject. Needs-more-information consumes the single decision
+slot; new material information or reconsideration requires a new assessment.
+Actor identifiers remain asserted labels, conditions and information requests
+remain ordered text, and no authentication, authorization, decision history,
+workflow state, condition management, or general audit-event system is implied.
+No current policy outcome is nonwaivable, but either approval must explicitly
+acknowledge every reviewed nonpassing finding.

@@ -45,8 +45,24 @@ metrics, define workflow state, grant approval, or invent missing facts.
 
 The system provides decision support.
 
-A human reviewer owns the final decision and may approve, approve with
-conditions, request further investigation, or reject.
+A human reviewer owns the decision and may approve, approve with conditions,
+record that more information is needed, or reject.
+
+ADR 0002 selects direct review of the verified deterministic assessment for
+the prototype. A generated report is a later presentation capability, not a
+prerequisite for decision authority. The planned durable boundary permits at
+most one immutable assessment-level evaluation snapshot and at most one
+immutable human decision per assessment. `needs_more_information` consumes that
+decision slot; new material information or reconsideration requires a new
+assessment in the one-shot model.
+
+The decision-maker actor identifier must equal the request's responsible
+reviewer actor identifier, but both are caller-asserted labels. The prototype
+does not authenticate or authorize them. Conditions and information requests
+are ordered human-readable statements without ownership, fulfillment, or
+workflow semantics. No current policy outcome is nonwaivable, but either human
+approval disposition must explicitly acknowledge every reviewed nonpassing
+finding.
 
 ## Persistence Boundary
 
@@ -103,6 +119,20 @@ missing or ambiguous kinds fail closed. Every selected record is reconstructed
 from its durable collection attempt and complete source material before it can
 enter the unchanged deterministic evaluator. Metrics and policy findings remain
 transient and no schema change is required for this integration.
+
+The selected but unimplemented schema-v5 direction adds only one canonical,
+versioned `AssessmentEvaluationSnapshot` and one `HumanDecision` concept. The
+evaluation identity payload preserves the complete ordered deterministic
+result, exact evaluation time, assessment and evidence references, and required
+versions while leaving request context and raw evidence in their existing
+authoritative records. `snapshot_json` contains exactly that canonical payload
+and excludes the generated evaluation ID and integrity digest. The integrity
+digest covers exactly the canonical payload bytes, and a new namespaced
+assessment-level identifier is derived from the same payload; the narrower
+`policy_evaluation_id` is not reused. Both future record types retain exact
+migration, fail-closed, replay, conflict, temporal, and close-and-reopen
+verification behavior. SQLite remains schema version 4 until that direction is
+implemented.
 
 ## One-Shot Execution Boundary
 
