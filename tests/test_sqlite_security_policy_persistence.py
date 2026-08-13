@@ -158,7 +158,7 @@ class SQLiteSecurityPolicyPersistenceTests(unittest.TestCase):
                 "SELECT sql FROM sqlite_master "
                 "WHERE name='github_source_snapshots'"
             ).fetchone()[0]
-        self.assertEqual(version, 4)
+        self.assertEqual(version, 5)
         self.assertIn("github_source_observations", tables)
         self.assertIn("security_policy_present_value", evidence_columns)
         self.assertNotIn("collection_attempt_id TEXT NOT NULL UNIQUE", snapshot_sql)
@@ -218,7 +218,7 @@ class SQLiteSecurityPolicyPersistenceTests(unittest.TestCase):
         persist_valid_assessment_request(self.database_path, _archived_request())
         with sqlite3.connect(self.database_path) as connection:
             self.assertEqual(
-                connection.execute("PRAGMA user_version").fetchone()[0], 4
+                connection.execute("PRAGMA user_version").fetchone()[0], 5
             )
             for table, columns in table_columns:
                 actual = connection.execute(
@@ -233,7 +233,7 @@ class SQLiteSecurityPolicyPersistenceTests(unittest.TestCase):
         original_verify = persistence._verify_schema_definition
 
         def fail_v4(connection, expected_columns, expected_sql):
-            if expected_columns is persistence._EXPECTED_COLUMNS:
+            if expected_columns is persistence._EXPECTED_COLUMNS_V4:
                 raise SQLitePersistenceError("schema_incompatible")
             return original_verify(connection, expected_columns, expected_sql)
 

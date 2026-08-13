@@ -355,7 +355,7 @@ class AssessmentCLITests(unittest.TestCase):
         self.assertEqual(invoked["transport"].call_count, 5)
         with sqlite3.connect(self.database_path) as connection:
             self.assertEqual(
-                connection.execute("PRAGMA user_version").fetchone()[0], 4
+                connection.execute("PRAGMA user_version").fetchone()[0], 5
             )
 
     def test_invalid_request_returns_validation_without_side_effects(self):

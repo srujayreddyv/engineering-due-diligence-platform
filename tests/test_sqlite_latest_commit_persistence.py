@@ -272,7 +272,7 @@ class SQLiteLatestCommitPersistenceTests(unittest.TestCase):
             attempts_sql = connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name='collection_attempts'"
             ).fetchone()[0]
-        self.assertEqual(version, 4)
+        self.assertEqual(version, 5)
         self.assertIn("latest_commit_timestamp_value", columns)
         self.assertIn("latest_commit_timestamp", attempts_sql)
 
@@ -320,7 +320,7 @@ class SQLiteLatestCommitPersistenceTests(unittest.TestCase):
 
         with sqlite3.connect(self.database_path) as connection:
             self.assertEqual(
-                connection.execute("PRAGMA user_version").fetchone()[0], 4
+                connection.execute("PRAGMA user_version").fetchone()[0], 5
             )
             for table, columns in table_columns:
                 rows = connection.execute(

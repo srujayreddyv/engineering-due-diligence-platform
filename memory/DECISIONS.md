@@ -64,14 +64,15 @@ The complete source response is stored separately from the compact normalized
 production database selection; PostgreSQL and production operations remain
 deferred.
 
-The concrete schema is versioned with `PRAGMA user_version`. Schema version 4
+The concrete schema is versioned with `PRAGMA user_version`. Schema version 5
 supports repository-archived, license-status, latest-commit timestamp, and
-security-policy-presence evidence through separate typed value columns. It also
-supports ordered source observations and multiple full source snapshots for a
-bounded multi-request collection attempt. An exact schema version 3 database
-migrates in one transaction, preserving archived, license, and latest-commit
-content and advancing the version only after schema, row, and foreign-key
-verification; the existing exact version 1 and 2 migration paths remain.
+security-policy-presence evidence through separate typed value columns, plus
+one canonical evaluation snapshot and at most one immutable human decision per
+assessment. It also supports ordered source observations and multiple full
+source snapshots for a bounded multi-request collection attempt. An exact
+schema version 4 database migrates in one transaction by adding the two empty
+tables, preserving all prior rows, and advancing the version only after schema,
+row, and foreign-key verification; the earlier exact migration paths remain.
 Latest-commit source timestamp text is preserved separately from its normalized
 aware datetime and both must denote the same UTC instant. This does not
 introduce a general migration framework or generic evidence-value store.
@@ -82,8 +83,9 @@ ADR 0002 selects the verified deterministic assessment as sufficient human
 review input for the prototype. A generated report remains a later presentation
 capability and is not a prerequisite for human decision authority.
 
-The planned boundary permits at most one immutable canonical assessment-level
-evaluation snapshot and at most one immutable human decision per assessment.
+The implemented library boundary permits at most one immutable canonical
+assessment-level evaluation snapshot and at most one immutable human decision
+per assessment.
 The snapshot references the existing request and authoritative evidence,
 preserves the complete ordered metric and policy result plus exact evaluation
 time and versions, and receives its own deterministic assessment-level

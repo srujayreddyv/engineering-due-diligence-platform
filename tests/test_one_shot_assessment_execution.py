@@ -303,6 +303,7 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         self.assertIs(result.validation_result.request, execution_input.request)
         self.assertIsNone(result.failure)
         self.assertIsNotNone(result.assessment_result)
+        self.assertIsNotNone(result.assessment_evaluation_snapshot)
         self.assertIs(
             result.assessment_result.evaluated_at,
             EVALUATED_AT,
@@ -344,6 +345,10 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         )
         self.assertEqual(len(result.assessment_result.metric_results), 4)
         self.assertEqual(len(result.assessment_result.policy_findings), 4)
+        self.assertEqual(
+            result.assessment_evaluation_snapshot.evaluated_at,
+            result.assessment_result.evaluated_at,
+        )
         self.assertEqual(transport.call_count, 5)
         clock.assert_called_once_with()
         self.assertEqual(
@@ -356,6 +361,13 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
                 "github_source_observations": 2,
             },
         )
+        with sqlite3.connect(self.database_path) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM assessment_evaluation_snapshots"
+                ).fetchone()[0],
+                1,
+            )
 
     def test_unavailable_evidence_continues_to_not_evaluable_finding(self):
         result, transport, clock = self._execute(
@@ -527,9 +539,14 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
                         "SELECT evidence_kind, outcome, error_category "
                         "FROM collection_attempts ORDER BY rowid DESC LIMIT 1"
                     ).fetchone()
+                    evaluation_count = connection.execute(
+                        "SELECT COUNT(*) "
+                        "FROM assessment_evaluation_snapshots"
+                    ).fetchone()[0]
                 self.assertEqual(last_attempt[0], "latest_commit_timestamp")
                 self.assertEqual(last_attempt[1], expected_outcome.value)
                 self.assertIsNotNone(last_attempt[2])
+                self.assertEqual(evaluation_count, 0)
 
     def test_persistence_and_programmer_errors_are_not_reclassified(self):
         with patch(
@@ -632,8 +649,16 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
                 self.assertEqual(
                     _row_counts(database_path)["evidence_records"], 4
                 )
+                with sqlite3.connect(database_path) as connection:
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT COUNT(*) "
+                            "FROM assessment_evaluation_snapshots"
+                        ).fetchone()[0],
+                        0,
+                    )
 
-    def test_later_transient_reevaluation_does_not_mutate_durable_evidence(self):
+    def test_replay_preserves_the_original_durable_evaluation_time(self):
         later_evaluated_at = EVALUATED_AT + timedelta(days=2)
         responses = _successful_responses()
         with patch(
@@ -659,19 +684,23 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
             second.assessment_result.evidence_records,
         )
         self.assertIs(first.assessment_result.evaluated_at, EVALUATED_AT)
-        self.assertIs(
-            second.assessment_result.evaluated_at, later_evaluated_at
+        self.assertEqual(
+            second.assessment_result.evaluated_at, EVALUATED_AT
         )
-        self.assertNotEqual(
+        self.assertEqual(
             first.assessment_result.metric_results,
             second.assessment_result.metric_results,
         )
-        self.assertNotEqual(
+        self.assertEqual(
             first.assessment_result.policy_findings,
             second.assessment_result.policy_findings,
         )
+        self.assertEqual(
+            first.assessment_evaluation_snapshot,
+            second.assessment_evaluation_snapshot,
+        )
         self.assertEqual(before, after)
-        self.assertEqual(clock.call_count, 2)
+        clock.assert_called_once_with()
 
     def test_changed_collection_timestamp_conflicts_before_evaluation(self):
         self._execute(_successful_responses())
@@ -722,7 +751,7 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(before, after)
         self.assertEqual(transport.call_count, 10)
-        self.assertEqual(clock.call_count, 2)
+        clock.assert_called_once_with()
         self.assertEqual(_row_counts(self.database_path)["evidence_records"], 4)
 
     def test_changed_remote_evidence_conflicts_without_mutation_or_evaluation(self):
@@ -793,7 +822,7 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
         self.assertIs(result.status, AssessmentExecutionStatus.COMPLETE)
         self.assertEqual(_row_counts(self.database_path)["evidence_records"], 4)
 
-    def test_schema_remains_v4_and_derived_results_remain_transient(self):
+    def test_schema_v5_contains_only_the_two_new_durable_concepts(self):
         self._execute(_successful_responses())
         with sqlite3.connect(self.database_path) as connection:
             version = connection.execute(
@@ -806,7 +835,7 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
                     "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
                 )
             }
-        self.assertEqual(version, 4)
+        self.assertEqual(version, 5)
         self.assertEqual(
             tables,
             {
@@ -815,6 +844,8 @@ class OneShotAssessmentExecutionTests(unittest.TestCase):
                 "github_source_snapshots",
                 "evidence_records",
                 "github_source_observations",
+                "assessment_evaluation_snapshots",
+                "human_decisions",
             },
         )
 

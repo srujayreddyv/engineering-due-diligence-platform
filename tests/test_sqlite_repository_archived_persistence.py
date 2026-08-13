@@ -235,7 +235,7 @@ class SQLiteRepositoryArchivedPersistenceTests(unittest.TestCase):
         with sqlite3.connect(self.database_path) as connection:
             connection.row_factory = sqlite3.Row
             self.assertEqual(
-                connection.execute("PRAGMA user_version").fetchone()[0], 4
+                connection.execute("PRAGMA user_version").fetchone()[0], 5
             )
             row = connection.execute(
                 "SELECT * FROM assessment_requests"
@@ -281,7 +281,7 @@ class SQLiteRepositoryArchivedPersistenceTests(unittest.TestCase):
                 private_connection.execute(
                     "PRAGMA user_version"
                 ).fetchone()[0],
-                4,
+                5,
             )
         finally:
             private_connection.close()

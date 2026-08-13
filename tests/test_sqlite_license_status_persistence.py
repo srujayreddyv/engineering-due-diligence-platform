@@ -283,7 +283,7 @@ class SQLiteLicenseStatusPersistenceTests(unittest.TestCase):
             sql = connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name='evidence_records'"
             ).fetchone()[0]
-        self.assertEqual(version, 4)
+        self.assertEqual(version, 5)
         self.assertIn("archived_value", columns)
         self.assertIn("license_status_value", columns)
         self.assertIn("'present', 'absent'", sql)
@@ -295,7 +295,7 @@ class SQLiteLicenseStatusPersistenceTests(unittest.TestCase):
 
         with sqlite3.connect(self.database_path) as connection:
             self.assertEqual(
-                connection.execute("PRAGMA user_version").fetchone()[0], 4
+                connection.execute("PRAGMA user_version").fetchone()[0], 5
             )
             self.assertFalse(
                 connection.execute("PRAGMA foreign_key_check").fetchall()

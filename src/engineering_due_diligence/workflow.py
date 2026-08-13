@@ -10,7 +10,9 @@ from enum import Enum
 from typing import Optional
 
 from .assessment import (
+    AssessmentEvaluationSnapshot,
     DeterministicAssessmentResult,
+    build_assessment_evaluation_snapshot,
     evaluate_persisted_assessment,
 )
 from .evaluation import REQUIRED_EVIDENCE_KINDS
@@ -25,6 +27,9 @@ from .github import (
 )
 from .models import EvidenceKind, EvidenceRecord
 from .persistence import (
+    SQLitePersistenceError,
+    load_verified_assessment_evaluation_snapshot,
+    persist_assessment_evaluation_snapshot,
     persist_github_latest_commit_collection,
     persist_github_license_status_collection,
     persist_github_repository_metadata_collection,
@@ -148,6 +153,9 @@ class AssessmentExecutionResult:
     status: AssessmentExecutionStatus
     failure: Optional[AssessmentExecutionFailure]
     assessment_result: Optional[DeterministicAssessmentResult]
+    assessment_evaluation_snapshot: Optional[
+        AssessmentEvaluationSnapshot
+    ] = None
 
     def __post_init__(self) -> None:
         if type(self.execution_input) is not AssessmentExecutionInput:
@@ -178,6 +186,7 @@ class AssessmentExecutionResult:
                 self.validation_result.validation_status != "invalid"
                 or self.failure is not None
                 or self.assessment_result is not None
+                or self.assessment_evaluation_snapshot is not None
             ):
                 raise ValueError(
                     "invalid execution requires only invalid validation data"
@@ -191,6 +200,7 @@ class AssessmentExecutionResult:
             if (
                 type(self.failure) is not AssessmentExecutionFailure
                 or self.assessment_result is not None
+                or self.assessment_evaluation_snapshot is not None
             ):
                 raise ValueError(
                     "failed execution requires one failure and no assessment"
@@ -210,6 +220,8 @@ class AssessmentExecutionResult:
                 self.failure is not None
                 or type(self.assessment_result)
                 is not DeterministicAssessmentResult
+                or type(self.assessment_evaluation_snapshot)
+                is not AssessmentEvaluationSnapshot
             ):
                 raise ValueError(
                     "complete execution requires one assessment and no failure"
@@ -245,6 +257,10 @@ class AssessmentExecutionResult:
                     finding.evaluated_at is not evaluated_at
                     for finding in self.assessment_result.policy_findings
                 )
+                or build_assessment_evaluation_snapshot(
+                    self.assessment_result
+                )
+                != self.assessment_evaluation_snapshot
             ):
                 raise ValueError(
                     "complete assessment does not match the execution input"
@@ -350,17 +366,35 @@ def execute_assessment(
             assessment_result=None,
         )
 
-    evaluated_at = _current_evaluation_time()
-    _require_aware_datetime("evaluated_at", evaluated_at)
-    assessment_result = evaluate_persisted_assessment(
-        database_path,
-        execution_input.request.assessment_id,
-        evaluated_at,
-    )
+    assessment_id = execution_input.request.assessment_id
+    try:
+        snapshot = load_verified_assessment_evaluation_snapshot(
+            database_path, assessment_id
+        )
+    except SQLitePersistenceError as exc:
+        if exc.category != "evaluation_not_found":
+            raise
+        evaluated_at = _current_evaluation_time()
+        _require_aware_datetime("evaluated_at", evaluated_at)
+        assessment_result = evaluate_persisted_assessment(
+            database_path,
+            assessment_id,
+            evaluated_at,
+        )
+        snapshot = persist_assessment_evaluation_snapshot(
+            database_path, assessment_result
+        )
+    else:
+        assessment_result = evaluate_persisted_assessment(
+            database_path,
+            assessment_id,
+            snapshot.evaluated_at,
+        )
     return AssessmentExecutionResult(
         execution_input=execution_input,
         validation_result=validation_result,
         status=AssessmentExecutionStatus.COMPLETE,
         failure=None,
         assessment_result=assessment_result,
+        assessment_evaluation_snapshot=snapshot,
     )

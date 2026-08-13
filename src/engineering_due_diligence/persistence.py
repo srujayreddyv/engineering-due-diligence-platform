@@ -28,7 +28,11 @@ from .models import (
     EvidenceOutcome,
     EvidenceRecord,
     FreshnessStatus,
+    HUMAN_DECISION_SCHEMA_VERSION,
+    HumanDecision,
+    HumanDecisionDisposition,
     LicenseStatus,
+    PolicyOutcome,
     RiskTolerance,
 )
 from .request import (
@@ -40,7 +44,7 @@ from .request import (
 
 _DatabasePath = Union[str, os.PathLike[str]]
 
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 _SQLITE_SYNCHRONOUS_FULL = 2
 _EVIDENCE_SCHEMA_VERSION = "evidence-record.v1"
 _ARCHIVED_NORMALIZATION_VERSION = "repository-archived-normalization.v1"
@@ -82,6 +86,10 @@ _ERROR_MESSAGES = {
     "evidence_set_ambiguous": (
         "The persisted assessment evidence set is ambiguous."
     ),
+    "evaluation_not_found": (
+        "The persisted assessment evaluation was not found."
+    ),
+    "decision_not_found": "The persisted human decision was not found.",
     "conflicting_replay": (
         "The persistence identity is already bound to different content."
     ),
@@ -194,6 +202,27 @@ _EVIDENCE_COLUMNS = (
     *_EVIDENCE_COLUMNS_V3[:19],
     "security_policy_present_value",
     *_EVIDENCE_COLUMNS_V3[19:],
+)
+
+_ASSESSMENT_EVALUATION_COLUMNS = (
+    "assessment_evaluation_id",
+    "assessment_id",
+    "snapshot_json",
+    "integrity_digest",
+)
+
+_HUMAN_DECISION_COLUMNS = (
+    "human_decision_id",
+    "assessment_id",
+    "assessment_evaluation_id",
+    "decision_maker_actor_id",
+    "disposition",
+    "rationale",
+    "conditions_json",
+    "information_requests_json",
+    "acknowledged_policy_finding_ids_json",
+    "recorded_at",
+    "decision_schema_version",
 )
 
 _EXPECTED_COLUMNS_V1 = {
@@ -816,7 +845,7 @@ _SCHEMA_V4_STATEMENTS = (
     """,
 )
 
-_EXPECTED_COLUMNS = {
+_EXPECTED_COLUMNS_V4 = {
     "assessment_requests": _REQUEST_COLUMNS,
     "collection_attempts": _ATTEMPT_COLUMNS,
     "github_source_snapshots": _SOURCE_SNAPSHOT_COLUMNS,
@@ -824,8 +853,112 @@ _EXPECTED_COLUMNS = {
     "github_source_observations": _SOURCE_OBSERVATION_COLUMNS,
 }
 
+_EXPECTED_SCHEMA_SQL_V4 = dict(
+    zip(_EXPECTED_COLUMNS_V4, _SCHEMA_V4_STATEMENTS)
+)
+
+_SCHEMA_V5_STATEMENTS = (
+    *_SCHEMA_V4_STATEMENTS,
+    """
+    CREATE TABLE assessment_evaluation_snapshots (
+        assessment_evaluation_id TEXT PRIMARY KEY
+            CHECK (
+                typeof(assessment_evaluation_id) = 'text'
+                AND length(assessment_evaluation_id) = 86
+                AND assessment_evaluation_id LIKE 'assessment-evaluation-%'
+            ),
+        assessment_id TEXT NOT NULL UNIQUE
+            CHECK (typeof(assessment_id) = 'text' AND length(assessment_id) > 0),
+        snapshot_json TEXT NOT NULL
+            CHECK (typeof(snapshot_json) = 'text' AND length(snapshot_json) > 0),
+        integrity_digest TEXT NOT NULL
+            CHECK (
+                typeof(integrity_digest) = 'text'
+                AND length(integrity_digest) = 64
+                AND integrity_digest = lower(integrity_digest)
+                AND integrity_digest NOT GLOB '*[^0-9a-f]*'
+            ),
+        FOREIGN KEY (assessment_id)
+            REFERENCES assessment_requests(assessment_id),
+        UNIQUE (assessment_evaluation_id, assessment_id)
+    )
+    """,
+    """
+    CREATE TABLE human_decisions (
+        human_decision_id TEXT PRIMARY KEY
+            CHECK (
+                typeof(human_decision_id) = 'text'
+                AND length(human_decision_id) = 79
+                AND human_decision_id LIKE 'human-decision-%'
+            ),
+        assessment_id TEXT NOT NULL UNIQUE
+            CHECK (typeof(assessment_id) = 'text' AND length(assessment_id) > 0),
+        assessment_evaluation_id TEXT NOT NULL UNIQUE
+            CHECK (
+                typeof(assessment_evaluation_id) = 'text'
+                AND length(assessment_evaluation_id) > 0
+            ),
+        decision_maker_actor_id TEXT NOT NULL
+            CHECK (
+                typeof(decision_maker_actor_id) = 'text'
+                AND length(decision_maker_actor_id) > 0
+            ),
+        disposition TEXT NOT NULL
+            CHECK (disposition IN (
+                'approve',
+                'approve_with_conditions',
+                'needs_more_information',
+                'reject'
+            )),
+        rationale TEXT NOT NULL
+            CHECK (typeof(rationale) = 'text' AND length(rationale) > 0),
+        conditions_json TEXT NOT NULL
+            CHECK (typeof(conditions_json) = 'text'),
+        information_requests_json TEXT NOT NULL
+            CHECK (typeof(information_requests_json) = 'text'),
+        acknowledged_policy_finding_ids_json TEXT NOT NULL
+            CHECK (typeof(acknowledged_policy_finding_ids_json) = 'text'),
+        recorded_at TEXT NOT NULL
+            CHECK (typeof(recorded_at) = 'text' AND length(recorded_at) > 0),
+        decision_schema_version TEXT NOT NULL
+            CHECK (decision_schema_version = 'human-decision.v1'),
+        FOREIGN KEY (assessment_id)
+            REFERENCES assessment_requests(assessment_id),
+        FOREIGN KEY (assessment_evaluation_id, assessment_id)
+            REFERENCES assessment_evaluation_snapshots(
+                assessment_evaluation_id, assessment_id
+            ),
+        CHECK (
+            (disposition = 'approve'
+                AND conditions_json = '[]'
+                AND information_requests_json = '[]')
+            OR
+            (disposition = 'approve_with_conditions'
+                AND conditions_json != '[]'
+                AND information_requests_json = '[]')
+            OR
+            (disposition = 'needs_more_information'
+                AND conditions_json = '[]'
+                AND information_requests_json != '[]'
+                AND acknowledged_policy_finding_ids_json = '[]')
+            OR
+            (disposition = 'reject'
+                AND conditions_json = '[]'
+                AND information_requests_json = '[]'
+                AND acknowledged_policy_finding_ids_json = '[]')
+        )
+    )
+    """,
+)
+
+_EXPECTED_COLUMNS = {
+    **_EXPECTED_COLUMNS_V4,
+    "assessment_evaluation_snapshots": _ASSESSMENT_EVALUATION_COLUMNS,
+    "human_decisions": _HUMAN_DECISION_COLUMNS,
+}
+
 _EXPECTED_SCHEMA_SQL = dict(
-    zip(_EXPECTED_COLUMNS, _SCHEMA_V4_STATEMENTS)
+    zip(_EXPECTED_COLUMNS, _SCHEMA_V5_STATEMENTS)
 )
 
 
@@ -961,7 +1094,7 @@ def _connect(filename: str) -> sqlite3.Connection:
         raise _error("database_unavailable") from None
 
 
-def _connect_read_only_v4(filename: str) -> sqlite3.Connection:
+def _connect_read_only_v5(filename: str) -> sqlite3.Connection:
     connection: Optional[sqlite3.Connection] = None
     try:
         database_uri = Path(filename).absolute().as_uri() + "?mode=ro"
@@ -979,7 +1112,7 @@ def _connect_read_only_v4(filename: str) -> sqlite3.Connection:
         if not database_file or foreign_keys != 1 or query_only != 1:
             raise _error("database_unavailable")
         connection.execute("BEGIN")
-        if connection.execute("PRAGMA user_version").fetchone()[0] != 4:
+        if connection.execute("PRAGMA user_version").fetchone()[0] != 5:
             raise _error("schema_incompatible")
         _verify_schema_definition(
             connection, _EXPECTED_COLUMNS, _EXPECTED_SCHEMA_SQL
@@ -1028,14 +1161,14 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
                 raise _error("schema_incompatible")
             connection.execute("BEGIN IMMEDIATE")
             try:
-                for statement in _SCHEMA_V4_STATEMENTS:
+                for statement in _SCHEMA_V5_STATEMENTS:
                     connection.execute(statement)
                 _verify_schema_definition(
                     connection, _EXPECTED_COLUMNS, _EXPECTED_SCHEMA_SQL
                 )
                 if connection.execute("PRAGMA foreign_key_check").fetchall():
                     raise _error("schema_incompatible")
-                connection.execute("PRAGMA user_version = 4")
+                connection.execute("PRAGMA user_version = 5")
                 connection.commit()
             except Exception:
                 _rollback_safely(connection)
@@ -1047,7 +1180,7 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
                 _EXPECTED_SCHEMA_SQL_V1,
             )
             _migrate_schema_v1_to_v2(connection)
-        elif version not in (2, 3, _SCHEMA_VERSION):
+        elif version not in (2, 3, 4, _SCHEMA_VERSION):
             raise _error("schema_incompatible")
 
         version = connection.execute("PRAGMA user_version").fetchone()[0]
@@ -1058,7 +1191,7 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
                 _EXPECTED_SCHEMA_SQL_V2,
             )
             _migrate_schema_v2_to_v3(connection)
-        elif version not in (3, _SCHEMA_VERSION):
+        elif version not in (3, 4, _SCHEMA_VERSION):
             raise _error("schema_incompatible")
 
         version = connection.execute("PRAGMA user_version").fetchone()[0]
@@ -1069,13 +1202,24 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
                 _EXPECTED_SCHEMA_SQL_V3,
             )
             _migrate_schema_v3_to_v4(connection)
+        elif version not in (4, _SCHEMA_VERSION):
+            raise _error("schema_incompatible")
+
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if version == 4:
+            _verify_schema_definition(
+                connection,
+                _EXPECTED_COLUMNS_V4,
+                _EXPECTED_SCHEMA_SQL_V4,
+            )
+            _migrate_schema_v4_to_v5(connection)
         elif version != _SCHEMA_VERSION:
             raise _error("schema_incompatible")
 
         _verify_schema_definition(
             connection, _EXPECTED_COLUMNS, _EXPECTED_SCHEMA_SQL
         )
-        if connection.execute("PRAGMA user_version").fetchone()[0] != 4:
+        if connection.execute("PRAGMA user_version").fetchone()[0] != 5:
             raise _error("schema_incompatible")
     except SQLitePersistenceError:
         raise
@@ -1383,11 +1527,58 @@ def _migrate_schema_v3_to_v4(connection: sqlite3.Connection) -> None:
         connection.execute("DROP TABLE github_source_snapshots_v3")
         connection.execute("DROP TABLE collection_attempts_v3")
         _verify_schema_definition(
-            connection, _EXPECTED_COLUMNS, _EXPECTED_SCHEMA_SQL
+            connection, _EXPECTED_COLUMNS_V4, _EXPECTED_SCHEMA_SQL_V4
         )
         if connection.execute("PRAGMA foreign_key_check").fetchall():
             raise _error("schema_incompatible")
         connection.execute("PRAGMA user_version = 4")
+        connection.commit()
+    except Exception:
+        _rollback_safely(connection)
+        raise
+
+
+def _migrate_schema_v4_to_v5(connection: sqlite3.Connection) -> None:
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        preserved_rows = {}
+        for table_name, columns in _EXPECTED_COLUMNS_V4.items():
+            selected = ", ".join(columns)
+            primary_key = columns[0]
+            preserved_rows[table_name] = [
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT {} FROM {} ORDER BY {}".format(
+                        selected, table_name, primary_key
+                    )
+                ).fetchall()
+            ]
+
+        connection.execute(_SCHEMA_V5_STATEMENTS[-2])
+        connection.execute(_SCHEMA_V5_STATEMENTS[-1])
+
+        for table_name, columns in _EXPECTED_COLUMNS_V4.items():
+            selected = ", ".join(columns)
+            primary_key = columns[0]
+            migrated_rows = [
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT {} FROM {} ORDER BY {}".format(
+                        selected, table_name, primary_key
+                    )
+                ).fetchall()
+            ]
+            if migrated_rows != preserved_rows[table_name]:
+                raise _error("schema_incompatible")
+
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise _error("schema_incompatible")
+        _verify_schema_definition(
+            connection, _EXPECTED_COLUMNS, _EXPECTED_SCHEMA_SQL
+        )
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise _error("schema_incompatible")
+        connection.execute("PRAGMA user_version = 5")
         connection.commit()
     except Exception:
         _rollback_safely(connection)
@@ -4096,6 +4287,44 @@ def _verified_evidence_from_connection(
     return evidence
 
 
+def _verified_assessment_evidence_set_from_connection(
+    connection: sqlite3.Connection,
+    assessment_id: str,
+) -> VerifiedAssessmentEvidenceSet:
+    _, validation_result = _read_request(connection, assessment_id)
+    evidence_rows = tuple(
+        connection.execute(
+            "SELECT {} FROM evidence_records "
+            "WHERE assessment_id = ? "
+            "ORDER BY evidence_kind, attempt_number, evidence_id".format(
+                ", ".join(_EVIDENCE_COLUMNS)
+            ),
+            (assessment_id,),
+        ).fetchall()
+    )
+    rows_by_kind = {kind: [] for kind in _VERIFIED_EVIDENCE_KINDS}
+    for row in evidence_rows:
+        kind = EvidenceKind(row["evidence_kind"])
+        if kind not in rows_by_kind:
+            raise ValueError("unsupported evidence kind")
+        rows_by_kind[kind].append(row)
+    if any(len(rows_by_kind[kind]) > 1 for kind in _VERIFIED_EVIDENCE_KINDS):
+        raise _error("evidence_set_ambiguous")
+    if any(not rows_by_kind[kind] for kind in _VERIFIED_EVIDENCE_KINDS):
+        raise _error("evidence_set_incomplete")
+
+    verified_records = tuple(
+        _verified_evidence_from_connection(
+            connection, rows_by_kind[kind][0], validation_result
+        )
+        for kind in _VERIFIED_EVIDENCE_KINDS
+    )
+    return VerifiedAssessmentEvidenceSet(
+        validation_result=validation_result,
+        evidence_records=verified_records,
+    )
+
+
 def load_verified_assessment_evidence(
     database_path: _DatabasePath,
     assessment_id: str,
@@ -4103,49 +4332,15 @@ def load_verified_assessment_evidence(
     """Load one complete authoritative evidence set without modifying SQLite."""
 
     filename = _database_filename(database_path)
-    if (
-        type(assessment_id) is not str
-        or not assessment_id
-        or assessment_id != assessment_id.strip()
-    ):
-        raise _error("invalid_input")
+    _validate_record_identifier("assessment_id", assessment_id)
 
-    connection = _connect_read_only_v4(filename)
+    connection = _connect_read_only_v5(filename)
     try:
-        _, validation_result = _read_request(connection, assessment_id)
-        evidence_rows = tuple(
-            connection.execute(
-                "SELECT {} FROM evidence_records "
-                "WHERE assessment_id = ? "
-                "ORDER BY evidence_kind, attempt_number, evidence_id".format(
-                    ", ".join(_EVIDENCE_COLUMNS)
-                ),
-                (assessment_id,),
-            ).fetchall()
-        )
-        rows_by_kind = {kind: [] for kind in _VERIFIED_EVIDENCE_KINDS}
-        for row in evidence_rows:
-            kind = EvidenceKind(row["evidence_kind"])
-            if kind not in rows_by_kind:
-                raise ValueError("unsupported evidence kind")
-            rows_by_kind[kind].append(row)
-        if any(len(rows_by_kind[kind]) > 1 for kind in _VERIFIED_EVIDENCE_KINDS):
-            raise _error("evidence_set_ambiguous")
-        if any(not rows_by_kind[kind] for kind in _VERIFIED_EVIDENCE_KINDS):
-            raise _error("evidence_set_incomplete")
-
-        verified_records = tuple(
-            _verified_evidence_from_connection(
-                connection, rows_by_kind[kind][0], validation_result
-            )
-            for kind in _VERIFIED_EVIDENCE_KINDS
+        verified_set = _verified_assessment_evidence_set_from_connection(
+            connection, assessment_id
         )
         if connection.execute("PRAGMA foreign_key_check").fetchall():
             raise ValueError("foreign key verification failed")
-        verified_set = VerifiedAssessmentEvidenceSet(
-            validation_result=validation_result,
-            evidence_records=verified_records,
-        )
     except SQLitePersistenceError:
         raise
     except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
@@ -4156,3 +4351,652 @@ def load_verified_assessment_evidence(
         _rollback_safely(connection)
         _close_safely(connection)
     return verified_set
+
+
+def _validate_record_identifier(field_name: str, value: object) -> str:
+    if (
+        type(value) is not str
+        or not value
+        or value != value.strip()
+    ):
+        raise _error("invalid_input")
+    return value
+
+
+def _evaluation_snapshot_from_connection(
+    connection: sqlite3.Connection,
+    assessment_id: str,
+):
+    from .assessment import (
+        ASSESSMENT_EVALUATION_SCHEMA_VERSION,
+        build_assessment_evaluation_snapshot,
+        evaluate_assessment,
+    )
+
+    rows = connection.execute(
+        "SELECT {} FROM assessment_evaluation_snapshots "
+        "WHERE assessment_id = ?".format(
+            ", ".join(_ASSESSMENT_EVALUATION_COLUMNS)
+        ),
+        (assessment_id,),
+    ).fetchall()
+    if not rows:
+        raise _error("evaluation_not_found")
+    if len(rows) != 1:
+        raise _error("verification_failed")
+    row = rows[0]
+    snapshot_json = row["snapshot_json"]
+    if type(snapshot_json) is not str:
+        raise ValueError("snapshot_json must be text")
+    payload = json.loads(snapshot_json)
+    expected_keys = {
+        "assessment_id",
+        "evaluated_at",
+        "evaluation_schema_version",
+        "evidence_references",
+        "metric_results",
+        "policy_findings",
+    }
+    if type(payload) is not dict or set(payload) != expected_keys:
+        raise ValueError("evaluation payload shape is invalid")
+    if (
+        payload["assessment_id"] != assessment_id
+        or payload["assessment_id"] != row["assessment_id"]
+        or payload["evaluation_schema_version"]
+        != ASSESSMENT_EVALUATION_SCHEMA_VERSION
+    ):
+        raise ValueError("evaluation payload identity is invalid")
+    evaluated_at = _parse_stored_datetime(payload["evaluated_at"])
+    verified_evidence = _verified_assessment_evidence_set_from_connection(
+        connection, assessment_id
+    )
+    context = verified_evidence.validation_result.context
+    if context is None:
+        raise ValueError("verified assessment requires context")
+    result = evaluate_assessment(
+        context, verified_evidence.evidence_records, evaluated_at
+    )
+    expected = build_assessment_evaluation_snapshot(result)
+    if _row_values(row, _ASSESSMENT_EVALUATION_COLUMNS) != (
+        expected.assessment_evaluation_id,
+        expected.assessment_id,
+        expected.snapshot_json,
+        expected.integrity_digest,
+    ):
+        raise ValueError("evaluation snapshot does not reconstruct exactly")
+    return expected
+
+
+def load_verified_assessment_evaluation_snapshot(
+    database_path: _DatabasePath,
+    assessment_id: str,
+):
+    """Load and deterministically verify one durable reviewed evaluation."""
+
+    filename = _database_filename(database_path)
+    _validate_record_identifier("assessment_id", assessment_id)
+    connection = _connect_read_only_v5(filename)
+    try:
+        snapshot = _evaluation_snapshot_from_connection(
+            connection, assessment_id
+        )
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise ValueError("foreign key verification failed")
+    except SQLitePersistenceError:
+        raise
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+        raise _error("verification_failed") from None
+    except sqlite3.Error:
+        raise _error("verification_failed") from None
+    finally:
+        _rollback_safely(connection)
+        _close_safely(connection)
+    return snapshot
+
+
+def persist_assessment_evaluation_snapshot(
+    database_path: _DatabasePath,
+    assessment_result,
+):
+    """Persist or exactly replay one complete deterministic evaluation."""
+
+    from .assessment import (
+        DeterministicAssessmentResult,
+        build_assessment_evaluation_snapshot,
+        evaluate_assessment,
+    )
+
+    if type(assessment_result) is not DeterministicAssessmentResult:
+        raise _error("invalid_input")
+    filename = _database_filename(database_path)
+    try:
+        proposed = build_assessment_evaluation_snapshot(assessment_result)
+    except (AttributeError, TypeError, ValueError):
+        raise _error("invalid_input") from None
+
+    connection = _connect(filename)
+    replay = False
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        verified_evidence = _verified_assessment_evidence_set_from_connection(
+            connection, proposed.assessment_id
+        )
+        context = verified_evidence.validation_result.context
+        if context is None:
+            raise _error("verification_failed")
+        recalculated = evaluate_assessment(
+            context,
+            verified_evidence.evidence_records,
+            proposed.evaluated_at,
+        )
+        if (
+            recalculated != assessment_result
+            or build_assessment_evaluation_snapshot(recalculated) != proposed
+        ):
+            raise _error("invalid_input")
+
+        existing_rows = connection.execute(
+            "SELECT assessment_evaluation_id "
+            "FROM assessment_evaluation_snapshots WHERE assessment_id = ?",
+            (proposed.assessment_id,),
+        ).fetchall()
+        if existing_rows:
+            replay = True
+            existing = _evaluation_snapshot_from_connection(
+                connection, proposed.assessment_id
+            )
+            if existing != proposed:
+                raise _error("conflicting_replay")
+            _rollback_safely(connection)
+        else:
+            _insert_values(
+                connection,
+                "assessment_evaluation_snapshots",
+                _ASSESSMENT_EVALUATION_COLUMNS,
+                (
+                    proposed.assessment_evaluation_id,
+                    proposed.assessment_id,
+                    proposed.snapshot_json,
+                    proposed.integrity_digest,
+                ),
+            )
+            connection.commit()
+    except SQLitePersistenceError:
+        _rollback_safely(connection)
+        raise
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+        _rollback_safely(connection)
+        raise _error("verification_failed") from None
+    except sqlite3.Error:
+        _rollback_safely(connection)
+        raise _error("write_failed") from None
+    finally:
+        _close_safely(connection)
+
+    stored = load_verified_assessment_evaluation_snapshot(
+        filename, proposed.assessment_id
+    )
+    if stored != proposed:
+        raise _error("conflicting_replay" if replay else "verification_failed")
+    return stored
+
+
+def _canonical_string_tuple_json(values: tuple[str, ...]) -> str:
+    return json.dumps(
+        values,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _parse_canonical_string_tuple_json(value: object) -> tuple[str, ...]:
+    if type(value) is not str:
+        raise ValueError("stored tuple must be text")
+    parsed = json.loads(value)
+    if type(parsed) is not list or not all(type(item) is str for item in parsed):
+        raise ValueError("stored tuple is invalid")
+    result = tuple(parsed)
+    if _canonical_string_tuple_json(result) != value:
+        raise ValueError("stored tuple is not canonical")
+    return result
+
+
+def _human_decision_identity_payload_bytes(
+    *,
+    assessment_id: str,
+    assessment_evaluation_id: str,
+    decision_maker_actor_id: str,
+    disposition: HumanDecisionDisposition,
+    rationale: str,
+    conditions: tuple[str, ...],
+    information_requests: tuple[str, ...],
+    acknowledged_policy_finding_ids: tuple[str, ...],
+    recorded_at: datetime,
+    decision_schema_version: str,
+) -> bytes:
+    payload = {
+        "assessment_id": assessment_id,
+        "assessment_evaluation_id": assessment_evaluation_id,
+        "decision_maker_actor_id": decision_maker_actor_id,
+        "disposition": disposition.value,
+        "rationale": rationale,
+        "conditions": list(conditions),
+        "information_requests": list(information_requests),
+        "acknowledged_policy_finding_ids": list(
+            acknowledged_policy_finding_ids
+        ),
+        "recorded_at": recorded_at.isoformat(),
+        "decision_schema_version": decision_schema_version,
+    }
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _human_decision_id(identity_payload_bytes: bytes) -> str:
+    material = b"human-decision-id.v1\0" + identity_payload_bytes
+    return "human-decision-" + hashlib.sha256(material).hexdigest()
+
+
+def _current_decision_time() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _validated_business_text(field_name: str, value: object) -> str:
+    if (
+        type(value) is not str
+        or not value.strip()
+        or value != value.strip()
+    ):
+        raise _error("invalid_input")
+    return value
+
+
+def _validated_business_tuple(
+    field_name: str, values: object
+) -> tuple[str, ...]:
+    if type(values) is not tuple:
+        raise _error("invalid_input")
+    for value in values:
+        _validated_business_text(field_name, value)
+    if len(set(values)) != len(values):
+        raise _error("invalid_input")
+    return values
+
+
+def _normalized_decision_business_content(
+    *,
+    assessment_id: object,
+    assessment_evaluation_id: object,
+    decision_maker_actor_id: object,
+    disposition: object,
+    rationale: object,
+    conditions: object,
+    information_requests: object,
+    acknowledged_policy_finding_ids: object,
+) -> tuple[object, ...]:
+    assessment_id = _validated_business_text("assessment_id", assessment_id)
+    assessment_evaluation_id = _validated_business_text(
+        "assessment_evaluation_id", assessment_evaluation_id
+    )
+    decision_maker_actor_id = _validated_business_text(
+        "decision_maker_actor_id", decision_maker_actor_id
+    )
+    rationale = _validated_business_text("rationale", rationale)
+    if type(disposition) is not HumanDecisionDisposition:
+        raise _error("invalid_input")
+    conditions = _validated_business_tuple("conditions", conditions)
+    information_requests = _validated_business_tuple(
+        "information_requests", information_requests
+    )
+    acknowledged_policy_finding_ids = _validated_business_tuple(
+        "acknowledged_policy_finding_ids",
+        acknowledged_policy_finding_ids,
+    )
+    return (
+        assessment_id,
+        assessment_evaluation_id,
+        decision_maker_actor_id,
+        disposition,
+        rationale,
+        conditions,
+        information_requests,
+        acknowledged_policy_finding_ids,
+    )
+
+
+def _validate_decision_business_content(
+    *,
+    validation_result: AssessmentRequestValidationResult,
+    snapshot,
+    assessment_id: object,
+    assessment_evaluation_id: object,
+    decision_maker_actor_id: object,
+    disposition: object,
+    rationale: object,
+    conditions: object,
+    information_requests: object,
+    acknowledged_policy_finding_ids: object,
+) -> tuple[object, ...]:
+    business_content = _normalized_decision_business_content(
+        assessment_id=assessment_id,
+        assessment_evaluation_id=assessment_evaluation_id,
+        decision_maker_actor_id=decision_maker_actor_id,
+        disposition=disposition,
+        rationale=rationale,
+        conditions=conditions,
+        information_requests=information_requests,
+        acknowledged_policy_finding_ids=(
+            acknowledged_policy_finding_ids
+        ),
+    )
+    (
+        assessment_id,
+        assessment_evaluation_id,
+        decision_maker_actor_id,
+        disposition,
+        rationale,
+        conditions,
+        information_requests,
+        acknowledged_policy_finding_ids,
+    ) = business_content
+    request = validation_result.request
+    if (
+        assessment_id != request.assessment_id
+        or assessment_id != snapshot.assessment_id
+        or assessment_evaluation_id != snapshot.assessment_evaluation_id
+        or decision_maker_actor_id
+        != request.responsible_reviewer_actor_id
+    ):
+        raise _error("invalid_input")
+    nonpassing_ids = tuple(
+        finding.policy_finding_id
+        for finding in snapshot.policy_findings
+        if finding.outcome is not PolicyOutcome.PASS
+    )
+    if disposition in (
+        HumanDecisionDisposition.APPROVE,
+        HumanDecisionDisposition.APPROVE_WITH_CONDITIONS,
+    ):
+        if acknowledged_policy_finding_ids != nonpassing_ids:
+            raise _error("invalid_input")
+    elif acknowledged_policy_finding_ids:
+        raise _error("invalid_input")
+    if disposition is HumanDecisionDisposition.APPROVE:
+        if conditions or information_requests:
+            raise _error("invalid_input")
+    elif disposition is HumanDecisionDisposition.APPROVE_WITH_CONDITIONS:
+        if not conditions or information_requests:
+            raise _error("invalid_input")
+    elif disposition is HumanDecisionDisposition.NEEDS_MORE_INFORMATION:
+        if conditions or not information_requests:
+            raise _error("invalid_input")
+    elif disposition is HumanDecisionDisposition.REJECT:
+        if conditions or information_requests:
+            raise _error("invalid_input")
+    return business_content
+
+
+def _decision_business_content(decision: HumanDecision) -> tuple[object, ...]:
+    return (
+        decision.assessment_id,
+        decision.assessment_evaluation_id,
+        decision.decision_maker_actor_id,
+        decision.disposition,
+        decision.rationale,
+        decision.conditions,
+        decision.information_requests,
+        decision.acknowledged_policy_finding_ids,
+    )
+
+
+def _human_decision_from_connection(
+    connection: sqlite3.Connection,
+    assessment_id: str,
+) -> HumanDecision:
+    rows = connection.execute(
+        "SELECT {} FROM human_decisions WHERE assessment_id = ?".format(
+            ", ".join(_HUMAN_DECISION_COLUMNS)
+        ),
+        (assessment_id,),
+    ).fetchall()
+    if not rows:
+        raise _error("decision_not_found")
+    if len(rows) != 1:
+        raise _error("verification_failed")
+    row = rows[0]
+    snapshot = _evaluation_snapshot_from_connection(connection, assessment_id)
+    _, validation_result = _read_request(connection, assessment_id)
+    conditions = _parse_canonical_string_tuple_json(row["conditions_json"])
+    information_requests = _parse_canonical_string_tuple_json(
+        row["information_requests_json"]
+    )
+    acknowledgments = _parse_canonical_string_tuple_json(
+        row["acknowledged_policy_finding_ids_json"]
+    )
+    recorded_at = _parse_stored_datetime(row["recorded_at"])
+    decision = HumanDecision(
+        human_decision_id=row["human_decision_id"],
+        assessment_id=row["assessment_id"],
+        assessment_evaluation_id=row["assessment_evaluation_id"],
+        decision_maker_actor_id=row["decision_maker_actor_id"],
+        disposition=HumanDecisionDisposition(row["disposition"]),
+        rationale=row["rationale"],
+        conditions=conditions,
+        information_requests=information_requests,
+        acknowledged_policy_finding_ids=acknowledgments,
+        recorded_at=recorded_at,
+        decision_schema_version=row["decision_schema_version"],
+    )
+    try:
+        _validate_decision_business_content(
+            validation_result=validation_result,
+            snapshot=snapshot,
+            assessment_id=decision.assessment_id,
+            assessment_evaluation_id=decision.assessment_evaluation_id,
+            decision_maker_actor_id=decision.decision_maker_actor_id,
+            disposition=decision.disposition,
+            rationale=decision.rationale,
+            conditions=decision.conditions,
+            information_requests=decision.information_requests,
+            acknowledged_policy_finding_ids=(
+                decision.acknowledged_policy_finding_ids
+            ),
+        )
+    except SQLitePersistenceError:
+        raise ValueError("stored decision business content is invalid") from None
+    if recorded_at < snapshot.evaluated_at.astimezone(timezone.utc):
+        raise ValueError("recorded_at precedes evaluated_at")
+    identity_bytes = _human_decision_identity_payload_bytes(
+        assessment_id=decision.assessment_id,
+        assessment_evaluation_id=decision.assessment_evaluation_id,
+        decision_maker_actor_id=decision.decision_maker_actor_id,
+        disposition=decision.disposition,
+        rationale=decision.rationale,
+        conditions=decision.conditions,
+        information_requests=decision.information_requests,
+        acknowledged_policy_finding_ids=(
+            decision.acknowledged_policy_finding_ids
+        ),
+        recorded_at=decision.recorded_at,
+        decision_schema_version=decision.decision_schema_version,
+    )
+    if decision.human_decision_id != _human_decision_id(identity_bytes):
+        raise ValueError("human decision identity does not verify")
+    return decision
+
+
+def load_verified_human_decision(
+    database_path: _DatabasePath,
+    assessment_id: str,
+) -> HumanDecision:
+    """Load one immutable decision only after complete reopen verification."""
+
+    filename = _database_filename(database_path)
+    _validate_record_identifier("assessment_id", assessment_id)
+    connection = _connect_read_only_v5(filename)
+    try:
+        decision = _human_decision_from_connection(connection, assessment_id)
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise ValueError("foreign key verification failed")
+    except SQLitePersistenceError:
+        raise
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+        raise _error("verification_failed") from None
+    except sqlite3.Error:
+        raise _error("verification_failed") from None
+    finally:
+        _rollback_safely(connection)
+        _close_safely(connection)
+    return decision
+
+
+def persist_human_decision(
+    database_path: _DatabasePath,
+    *,
+    assessment_id: str,
+    assessment_evaluation_id: str,
+    decision_maker_actor_id: str,
+    disposition: HumanDecisionDisposition,
+    rationale: str,
+    conditions: tuple[str, ...] = (),
+    information_requests: tuple[str, ...] = (),
+    acknowledged_policy_finding_ids: tuple[str, ...] = (),
+) -> HumanDecision:
+    """Record or exactly replay the one immutable decision for an assessment."""
+
+    filename = _database_filename(database_path)
+    connection = _connect(filename)
+    replay = False
+    decision: Optional[HumanDecision] = None
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        business_content = _normalized_decision_business_content(
+            assessment_id=assessment_id,
+            assessment_evaluation_id=assessment_evaluation_id,
+            decision_maker_actor_id=decision_maker_actor_id,
+            disposition=disposition,
+            rationale=rationale,
+            conditions=conditions,
+            information_requests=information_requests,
+            acknowledged_policy_finding_ids=(
+                acknowledged_policy_finding_ids
+            ),
+        )
+        _, validation_result = _read_request(connection, assessment_id)
+        snapshot = _evaluation_snapshot_from_connection(
+            connection, assessment_id
+        )
+        existing_rows = connection.execute(
+            "SELECT human_decision_id FROM human_decisions "
+            "WHERE assessment_id = ?",
+            (assessment_id,),
+        ).fetchall()
+        if existing_rows:
+            replay = True
+            existing = _human_decision_from_connection(
+                connection, assessment_id
+            )
+            if _decision_business_content(existing) != business_content:
+                raise _error("conflicting_replay")
+            decision = existing
+            _rollback_safely(connection)
+        else:
+            _validate_decision_business_content(
+                validation_result=validation_result,
+                snapshot=snapshot,
+                assessment_id=assessment_id,
+                assessment_evaluation_id=assessment_evaluation_id,
+                decision_maker_actor_id=decision_maker_actor_id,
+                disposition=disposition,
+                rationale=rationale,
+                conditions=conditions,
+                information_requests=information_requests,
+                acknowledged_policy_finding_ids=(
+                    acknowledged_policy_finding_ids
+                ),
+            )
+            recorded_at = _current_decision_time()
+            if (
+                not isinstance(recorded_at, datetime)
+                or recorded_at.tzinfo is None
+                or recorded_at.utcoffset() is None
+                or recorded_at.utcoffset()
+                != timezone.utc.utcoffset(recorded_at)
+                or recorded_at
+                < snapshot.evaluated_at.astimezone(timezone.utc)
+            ):
+                raise _error("invalid_input")
+            identity_bytes = _human_decision_identity_payload_bytes(
+                assessment_id=assessment_id,
+                assessment_evaluation_id=assessment_evaluation_id,
+                decision_maker_actor_id=decision_maker_actor_id,
+                disposition=disposition,
+                rationale=rationale,
+                conditions=conditions,
+                information_requests=information_requests,
+                acknowledged_policy_finding_ids=(
+                    acknowledged_policy_finding_ids
+                ),
+                recorded_at=recorded_at,
+                decision_schema_version=HUMAN_DECISION_SCHEMA_VERSION,
+            )
+            decision = HumanDecision(
+                human_decision_id=_human_decision_id(identity_bytes),
+                assessment_id=assessment_id,
+                assessment_evaluation_id=assessment_evaluation_id,
+                decision_maker_actor_id=decision_maker_actor_id,
+                disposition=disposition,
+                rationale=rationale,
+                conditions=conditions,
+                information_requests=information_requests,
+                acknowledged_policy_finding_ids=(
+                    acknowledged_policy_finding_ids
+                ),
+                recorded_at=recorded_at,
+                decision_schema_version=HUMAN_DECISION_SCHEMA_VERSION,
+            )
+            _insert_values(
+                connection,
+                "human_decisions",
+                _HUMAN_DECISION_COLUMNS,
+                (
+                    decision.human_decision_id,
+                    decision.assessment_id,
+                    decision.assessment_evaluation_id,
+                    decision.decision_maker_actor_id,
+                    decision.disposition.value,
+                    decision.rationale,
+                    _canonical_string_tuple_json(decision.conditions),
+                    _canonical_string_tuple_json(
+                        decision.information_requests
+                    ),
+                    _canonical_string_tuple_json(
+                        decision.acknowledged_policy_finding_ids
+                    ),
+                    decision.recorded_at.isoformat(),
+                    decision.decision_schema_version,
+                ),
+            )
+            connection.commit()
+    except SQLitePersistenceError:
+        _rollback_safely(connection)
+        raise
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+        _rollback_safely(connection)
+        raise _error("verification_failed") from None
+    except sqlite3.Error:
+        _rollback_safely(connection)
+        raise _error("write_failed") from None
+    finally:
+        _close_safely(connection)
+
+    if decision is None:
+        raise _error("verification_failed")
+    stored = load_verified_human_decision(filename, assessment_id)
+    if stored != decision:
+        raise _error("conflicting_replay" if replay else "verification_failed")
+    return stored

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional, Tuple, Union
 
@@ -65,6 +65,15 @@ class PolicyOutcome(str, Enum):
     CONDITION_REQUIRED = "condition_required"
     INVESTIGATION_REQUIRED = "investigation_required"
     NOT_EVALUABLE = "not_evaluable"
+
+
+class HumanDecisionDisposition(str, Enum):
+    """The four human-owned repository adoption dispositions."""
+
+    APPROVE = "approve"
+    APPROVE_WITH_CONDITIONS = "approve_with_conditions"
+    NEEDS_MORE_INFORMATION = "needs_more_information"
+    REJECT = "reject"
 
 
 EvidenceValue = Union[bool, datetime, LicenseStatus]
@@ -416,3 +425,102 @@ class PolicyFinding:
             raise ValueError(
                 "condition_template is only valid for condition_required"
             )
+
+
+HUMAN_DECISION_SCHEMA_VERSION = "human-decision.v1"
+
+
+@dataclass(frozen=True)
+class HumanDecision:
+    """One immutable human disposition over one reviewed evaluation."""
+
+    human_decision_id: str
+    assessment_id: str
+    assessment_evaluation_id: str
+    decision_maker_actor_id: str
+    disposition: HumanDecisionDisposition
+    rationale: str
+    conditions: Tuple[str, ...]
+    information_requests: Tuple[str, ...]
+    acknowledged_policy_finding_ids: Tuple[str, ...]
+    recorded_at: datetime
+    decision_schema_version: str
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "human_decision_id",
+            "assessment_id",
+            "assessment_evaluation_id",
+            "decision_maker_actor_id",
+            "rationale",
+            "decision_schema_version",
+        ):
+            value = getattr(self, field_name)
+            _require_text(field_name, value)
+            if value != value.strip():
+                raise ValueError("{} must be unpadded".format(field_name))
+        if type(self.disposition) is not HumanDecisionDisposition:
+            raise ValueError(
+                "disposition must be a HumanDecisionDisposition"
+            )
+        for field_name in (
+            "conditions",
+            "information_requests",
+            "acknowledged_policy_finding_ids",
+        ):
+            values = getattr(self, field_name)
+            if type(values) is not tuple:
+                raise ValueError("{} must be a tuple".format(field_name))
+            for value in values:
+                if (
+                    type(value) is not str
+                    or not value.strip()
+                    or value != value.strip()
+                ):
+                    raise ValueError(
+                        "{} entries must be nonempty unpadded strings".format(
+                            field_name
+                        )
+                    )
+            if len(set(values)) != len(values):
+                raise ValueError(
+                    "{} must not contain duplicates".format(field_name)
+                )
+        _require_aware_datetime("recorded_at", self.recorded_at)
+        if self.recorded_at.utcoffset() != timedelta(0):
+            raise ValueError("recorded_at must be UTC")
+        if self.decision_schema_version != HUMAN_DECISION_SCHEMA_VERSION:
+            raise ValueError("decision_schema_version is not supported")
+
+        if self.disposition is HumanDecisionDisposition.APPROVE:
+            if self.conditions or self.information_requests:
+                raise ValueError(
+                    "approve requires no conditions or information requests"
+                )
+        elif (
+            self.disposition
+            is HumanDecisionDisposition.APPROVE_WITH_CONDITIONS
+        ):
+            if not self.conditions or self.information_requests:
+                raise ValueError(
+                    "approve_with_conditions requires conditions only"
+                )
+        elif (
+            self.disposition
+            is HumanDecisionDisposition.NEEDS_MORE_INFORMATION
+        ):
+            if self.conditions or not self.information_requests:
+                raise ValueError(
+                    "needs_more_information requires information requests only"
+                )
+            if self.acknowledged_policy_finding_ids:
+                raise ValueError(
+                    "needs_more_information requires empty acknowledgments"
+                )
+        elif self.disposition is HumanDecisionDisposition.REJECT:
+            if self.conditions or self.information_requests:
+                raise ValueError(
+                    "reject requires no conditions or information requests"
+                )
+            if self.acknowledged_policy_finding_ids:
+                raise ValueError("reject requires empty acknowledgments")

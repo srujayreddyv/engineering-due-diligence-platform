@@ -116,11 +116,14 @@ For the concrete one-shot assessment boundary:
 5. Continue through available and unavailable evidence; persist the first
    retryable or nonretryable failure and stop without later collection or
    evaluation.
-6. Capture one aware evaluation timestamp and evaluate exactly once only after
-   durable loading verifies all four required evidence records; pass that exact
-   timestamp unchanged to transient evaluation.
-7. Accept exact replay without duplicate durable rows and reject changed
-   content under an existing attempt identity without mutation.
+6. After durable loading verifies all four required evidence records, first
+   look for the assessment's verified evaluation snapshot before reading the
+   evaluation clock.
+7. On first evaluation only, capture one aware evaluation timestamp, evaluate,
+   persist the exact canonical result, and close-and-reopen verify it before
+   returning completion.
+8. On exact replay, return the stored evaluation snapshot and original
+   evaluation time; reject changed content without mutation.
 
 The one-shot boundary persists authoritative request and evidence outputs, not
 workflow state. Retry, resume, reassessment, and current-evidence selection

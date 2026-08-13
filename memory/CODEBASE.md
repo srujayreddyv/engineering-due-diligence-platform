@@ -69,32 +69,39 @@ calls the one-shot workflow once. The workflow—not the CLI input—captures th
 aware evaluation timestamp only after all four authoritative evidence records
 exist. Versioned `assessment-cli-output.v1` JSON returns canonical evidence,
 metrics, and policy findings without complete GitHub response bodies or an
-aggregate recommendation, and explicitly states that the human decision is not
-implemented. Stable exit codes distinguish complete, internal, usage,
-validation, collection, and persistence or verification outcomes.
+aggregate recommendation. It does not yet expose the implemented human-
+decision library capability. Stable exit codes distinguish complete, internal,
+usage, validation, collection, and persistence or verification outcomes.
 
-SQLite schema version 4 stores all four evidence kinds in separate typed
+SQLite schema version 5 stores all four evidence kinds in separate typed
 columns and adds ordered GitHub source observations plus multiple source
-snapshots for bounded multi-request collection. Exact schema version 3
-databases migrate transactionally while preserving archived, license, and
-latest-commit content; the existing exact version 1 and 2 migrations remain
-supported. Complete HTTP 200 response bytes remain separate from compact
-normalized evidence, and only close-and-reopen verified evidence is
-authoritative. For latest commits, the exact source timestamp spelling and the
-normalized timestamp representation are preserved separately and must denote
-the same UTC instant. Durable evaluation loading accepts only an existing exact
-schema-v4 database, reads one consistent transaction snapshot, requires exactly
-one record for each evaluator-required kind, and fails closed on missing,
-ambiguous, corrupt, or mismatched evidence.
+snapshots for bounded multi-request collection. It adds one canonical
+assessment-evaluation snapshot and at most one immutable human decision per
+assessment. Exact schema version 4 databases migrate transactionally by adding
+the two empty tables while preserving every existing row; the earlier exact
+migration chain remains supported. Complete HTTP 200 response bytes remain
+separate from compact normalized evidence, and only close-and-reopen verified
+content is authoritative. Durable reads accept only an existing exact schema-
+v5 database and fail closed on missing, ambiguous, corrupt, mismatched, or
+unsupported content.
 
 The one-shot workflow uses deterministic versioned SHA256 collection-attempt
 identifiers derived from assessment ID, evidence kind, and attempt number 1.
 It persists and reopen-verifies each terminal result before starting the next
 collector. Available and unavailable evidence continue; the first failed
-outcome stops without evaluation. Exact replay is idempotent, while changed
-remote content under the same identity conflicts without mutation. The
-workflow adds no durable workflow state, retry, reassessment, current-evidence
-selection, or derived-result persistence, and SQLite remains schema version 4.
+outcome stops without evaluation. A first complete evaluation is persisted as
+one canonical snapshot and reopen-verified before completion is returned. Exact
+workflow replay returns the original evaluation time and snapshot without
+reading a later evaluation clock; changed evidence or evaluation content
+conflicts without mutation. The workflow adds no durable workflow state, retry,
+reassessment, or current-evidence selection.
+
+The library can record one immutable human decision against the same verified
+assessment evaluation. It enforces responsible-reviewer identifier equality,
+disposition-specific conditions or information requests, complete ordered
+nonpassing-finding acknowledgment for approvals, UTC recording time, exact
+identity derivation, reopen verification, and business-content-only replay.
+There is no decision CLI yet.
 
 FastAPI, Pydantic, PostgreSQL, model integration, OpenTelemetry, Docker Compose,
 and Grafana-compatible telemetry remain planned or deferred rather than

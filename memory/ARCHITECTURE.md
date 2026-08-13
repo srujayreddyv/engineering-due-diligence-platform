@@ -110,18 +110,17 @@ denote the same UTC instant. Exact replay is accepted without duplicates,
 conflicting replay is rejected, and incomplete or unverifiable writes fail
 closed.
 
-The durable evaluation read boundary opens only an existing exact schema-v4
+The durable evaluation read boundary opens only an existing exact schema-v5
 database in SQLite read-only and query-only modes. One read transaction
 reconstructs the valid request and exactly one `EvidenceRecord` for repository
 archived, license status, latest commit timestamp, and security policy presence
 in canonical evaluator order. Unavailable evidence satisfies completeness;
 missing or ambiguous kinds fail closed. Every selected record is reconstructed
 from its durable collection attempt and complete source material before it can
-enter the unchanged deterministic evaluator. Metrics and policy findings remain
-transient and no schema change is required for this integration.
+enter the unchanged deterministic evaluator.
 
-The selected but unimplemented schema-v5 direction adds only one canonical,
-versioned `AssessmentEvaluationSnapshot` and one `HumanDecision` concept. The
+Schema v5 adds only one canonical, versioned `AssessmentEvaluationSnapshot` and
+one `HumanDecision` concept. The
 evaluation identity payload preserves the complete ordered deterministic
 result, exact evaluation time, assessment and evidence references, and required
 versions while leaving request context and raw evidence in their existing
@@ -129,10 +128,12 @@ authoritative records. `snapshot_json` contains exactly that canonical payload
 and excludes the generated evaluation ID and integrity digest. The integrity
 digest covers exactly the canonical payload bytes, and a new namespaced
 assessment-level identifier is derived from the same payload; the narrower
-`policy_evaluation_id` is not reused. Both future record types retain exact
+`policy_evaluation_id` is not reused. Both record types retain exact
 migration, fail-closed, replay, conflict, temporal, and close-and-reopen
-verification behavior. SQLite remains schema version 4 until that direction is
-implemented.
+verification behavior. The human decision is bound to the same assessment and
+evaluation, to the request's asserted responsible reviewer identifier, and to
+the exact ordered acknowledgment rules. The library implements this boundary;
+the CLI does not yet expose it.
 
 ## One-Shot Execution Boundary
 
@@ -151,16 +152,17 @@ Only the complete verified four-kind evidence set enters deterministic
 evaluation, and metrics and findings remain transient.
 
 `collection_attempted_at` remains durable execution-input provenance; the CLI
-supplies it. The workflow captures `evaluated_at` through one private clock only
-after all four authoritative records exist and passes the exact aware value
-unchanged to the transient evaluator. Exact evidence replay may therefore be
-reevaluated at a later timestamp without database mutation; temporal violations
-still fail closed.
+supplies it. After all four authoritative records exist, the workflow first
+loads any verified evaluation snapshot. Exact replay evaluates at and returns
+the stored original time without reading the clock. Only a first evaluation
+captures `evaluated_at` through one private clock, passes it unchanged to the
+deterministic evaluator, and persists and reopen-verifies the resulting
+snapshot before returning completion. Temporal violations still fail closed.
 
-This boundary is not a durable workflow engine. It adds no schema change,
-workflow-state record, retry, resume, reassessment, or current-evidence
-selection. Exact replay is idempotent; changed collection content under an
-existing attempt identity conflicts without mutation.
+This boundary is not a durable workflow engine. It adds no workflow-state
+record, retry, resume, reassessment, or current-evidence selection. Exact replay
+is idempotent; changed collection or evaluation content under an existing
+identity conflicts without mutation.
 
 ## Command-Line Boundary
 

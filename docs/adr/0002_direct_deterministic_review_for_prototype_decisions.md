@@ -87,8 +87,8 @@ Conditions and information requests are ordered nonempty human-readable
 statements. The platform does not assign condition owners, track status,
 verify fulfillment, or claim that conditions were satisfied.
 
-Future schema version 5 will add only the assessment-evaluation-snapshot and
-human-decision durable concepts. It will preserve existing fail-closed,
+Schema version 5 adds only the assessment-evaluation-snapshot and human-decision
+durable concepts. It preserves existing fail-closed,
 transactional migration, exact replay, conflict, close-and-reopen verification,
 integrity, and temporal principles without adding a persistence abstraction,
 workflow engine, or general audit-event model.
@@ -168,8 +168,8 @@ prototype boundary and would imply guarantees the runtime does not provide.
 
 ## Scope and Implementation Status
 
-This ADR selects the architecture only. On Day 15, SQLite remains schema
-version 4 and no production code, tests, migration, or CLI behavior implements
-the decision. The exact conceptual schema, contracts, identifiers, replay
-rules, and future CLI are locked in
+This ADR selected the architecture on Day 15. Day 16 implements the contracts,
+schema-v5 migration, durable snapshots, immutable decision library boundary,
+and workflow snapshot integration. The CLI remains unchanged and does not yet
+record human decisions. The locked design remains in
 `plans/day_15_human_decision_boundary.md`.
