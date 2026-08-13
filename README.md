@@ -1,13 +1,13 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** Days 1 through 13 established the engagement, request and
-> domain contracts, all four public GitHub evidence collectors, schema-v4
-> SQLite persistence, strict durable evaluation loading, and one-shot
-> execution. Day 14 adds a dependency-free command-line interface that accepts
-> one assessment request and returns versioned machine-readable evidence,
-> metrics, and policy findings. Metrics and findings remain transient; retry
-> and reassessment, audit, reports, model use, and human decisions remain
-> unimplemented.
+> **Current status:** Through Day 16, the prototype validates one assessment
+> request, persists and reopen-verifies four authoritative public GitHub
+> evidence records, deterministically evaluates them, and preserves the exact
+> reviewed result as one durable `AssessmentEvaluationSnapshot`. SQLite schema
+> version 5 also supports one immutable `HumanDecision` per assessment through
+> the library. The only customer-facing command remains `assess`; there is no
+> `decide` CLI, report generation, AI synthesis, authentication, or
+> authorization. The full suite contains 256 passing tests.
 
 ## Customer Problem
 
@@ -51,6 +51,25 @@ AI is limited to grounded synthesis, tradeoff explanation, uncertainty
 communication, and reviewer questions. It does not collect authoritative
 evidence, calculate deterministic metrics, enforce policy, control workflow
 state, or approve adoption.
+
+## Implemented Workflow
+
+The implemented prototype boundary is:
+
+```text
+assessment request
+    -> durable reopen-verified evidence
+    -> deterministic metrics and policy findings
+    -> one durable AssessmentEvaluationSnapshot per assessment
+    -> at most one immutable HumanDecision per assessment
+```
+
+The snapshot preserves the complete ordered metric and policy result used for
+review while referencing the existing request and evidence records. A human
+owns the final disposition. The library can persist that decision directly
+against the verified snapshot, but the `assess` CLI neither accepts nor records
+human decisions. Its existing `human_decision.status: not_implemented` output
+describes the CLI surface, not the library capability.
 
 ## Scope
 
@@ -369,12 +388,48 @@ Day 14 does not change SQLite schema version 4. The interface remains a
 synchronous one-shot command: it does not retry, resume, reassess, persist
 derived results, generate a report, or record a human decision.
 
+Completed on Day 15:
+
+* direct review of the verified deterministic assessment was selected as
+  sufficient input for a prototype human decision without requiring a report,
+  AI, authentication, authorization, or workflow state;
+* the decision vocabulary was locked to `approve`,
+  `approve_with_conditions`, `needs_more_information`, and `reject`;
+* at most one immutable evaluation snapshot and one immutable human decision
+  were specified per assessment, with a new assessment required for material
+  reconsideration; and
+* the boundary, canonical identity payloads, replay rules, and schema-v5
+  direction were recorded in
+  [ADR 0002](docs/adr/0002_direct_deterministic_review_for_prototype_decisions.md).
+
+Completed on Day 16:
+
+* frozen `AssessmentEvaluationSnapshot`, `HumanDecisionDisposition`, and
+  `HumanDecision` contracts implement the reviewed deterministic result and
+  human-owned disposition boundaries;
+* SQLite schema version 5 adds only `assessment_evaluation_snapshots` and
+  `human_decisions`; exact version 4 databases migrate transactionally without
+  fabricating historical evaluations or decisions;
+* successful one-shot execution persists and reopen-verifies the complete
+  canonical evaluation snapshot, while exact replay verifies the request and
+  evidence and returns the original durable `evaluated_at`;
+* the decision library enforces same-assessment snapshot binding, asserted
+  responsible-reviewer identifier equality, disposition-specific content,
+  complete ordered acknowledgment of nonpassing findings for approvals, and
+  immutable business-content replay; and
+* 256 repository tests pass. Day 16 adds no decision CLI, report, AI,
+  authentication, authorization, workflow state, or condition lifecycle.
+
 Not yet implemented:
 
-* retry, resume, reassessment, and current-evidence selection;
-* audit history, generated reports, and model integration;
-* human review and decision recording; and
-* production storage and deployment, observability, and prototype evaluation.
+* a `decide` CLI or other customer-facing human-decision entry point;
+* generated reports, AI synthesis, authentication, or authorization;
+* retry, resume, reassessment, current-evidence selection, or workflow state;
+* decision editing, correction, supersession, or condition-fulfillment
+  tracking;
+* general audit history, an HTTP API, a web UI, and new observability
+  infrastructure; and
+* production storage and deployment or prototype evaluation.
 
 ## Four Week Milestones
 
@@ -382,7 +437,7 @@ Not yet implemented:
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
 | 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy evaluation, all four durable evidence kinds, verified loading, and one-shot execution are complete |
-| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors, one complete one-shot assessment execution, and a minimal CLI are verified; reporting, review, audit, and observability remain planned |
+| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors, one complete one-shot assessment execution, a durable reviewed-evaluation snapshot, an immutable human-decision library boundary, and a minimal assessment CLI are verified; reporting, a decision CLI, general audit history, and observability remain planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
 Milestones describe intended sequencing and are not claims of completed
@@ -410,6 +465,9 @@ capability.
 * [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md) — SQLite
   as the concrete prototype persistence store, without making a production
   database decision.
+* [ADR 0002](docs/adr/0002_direct_deterministic_review_for_prototype_decisions.md)
+  — direct deterministic review and the one-evaluation, one-decision prototype
+  boundary.
 
 ### Engineering Context
 
@@ -447,10 +505,14 @@ The Python package now contains dependency-free transient request validation,
 public GitHub archived-status, license-status, latest-commit, and effective
 security-policy collection, deterministic evaluation and in-memory result
 assembly, concrete SQLite persistence for validated requests and all four
-evidence kinds, strict read-only durable evaluation loading, and one-shot
-assessment execution. A minimal command-line interface exposes that workflow
-as versioned JSON. Metrics and policy findings remain transient; there is no
-HTTP API or deployed application.
+evidence kinds, strict read-only durable evidence loading, one canonical
+assessment-evaluation snapshot per assessment, and at most one immutable human
+decision per assessment. One-shot execution persists the reviewed snapshot and
+exact replay returns its original evaluation time after request and evidence
+verification. A minimal `assess` command exposes assessment execution as
+versioned JSON; the decision capability remains library-only. There is no
+`decide` command, report generation, AI synthesis, authentication,
+authorization, HTTP API, or web UI.
 Run its tests from the repository root with:
 
 ```bash
@@ -467,7 +529,8 @@ Before planning or editing:
 4. read relevant ADRs and the current task plan; and
 5. preserve the locked scope and documentation-layer boundaries.
 
-The current active plan is
-[plans/day_14_minimal_assessment_cli.md](plans/day_14_minimal_assessment_cli.md),
-with its durable storage decision recorded in
-[ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md).
+The latest completed implementation plan is
+[plans/day_16_durable_evaluation_and_human_decision.md](plans/day_16_durable_evaluation_and_human_decision.md).
+The durable storage and direct-review decisions are recorded in
+[ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md) and
+[ADR 0002](docs/adr/0002_direct_deterministic_review_for_prototype_decisions.md).

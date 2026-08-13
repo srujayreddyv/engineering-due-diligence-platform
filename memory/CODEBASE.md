@@ -52,14 +52,16 @@ security-policy-presence collection, deterministic evidence-to-policy
 evaluation, in-memory assessment result assembly, and SQLite persistence for
 validated requests and terminal outcomes from all four collectors. A strict
 read-only SQLite loader reconstructs the complete four-kind authoritative
-evidence set and passes it to the unchanged deterministic evaluator; metrics
-and policy findings remain transient. One one-shot execution boundary now
-connects request validation, request persistence, the four collectors and
-their persistence functions, durable evidence loading, and deterministic
-evaluation. GitHub license presence means detected metadata only, not legal or
-compatibility analysis. Security-policy presence includes repository-local
-`SECURITY.md` files and inherited defaults from the owner's public `.github`
-repository.
+evidence set and passes it to the unchanged deterministic evaluator. The
+complete ordered metrics and policy findings are preserved inside one canonical
+`AssessmentEvaluationSnapshot` per assessment rather than as independently
+managed rows. One one-shot execution boundary connects request validation,
+request persistence, the four collectors and their persistence functions,
+durable evidence loading, deterministic evaluation, and durable reviewed-
+snapshot verification. GitHub license presence means detected metadata only,
+not legal or compatibility analysis. Security-policy presence includes
+repository-local `SECURITY.md` files and inherited defaults from the owner's
+public `.github` repository.
 
 The minimal customer-facing boundary is
 `python -m engineering_due_diligence.cli assess`. It requires one database path
@@ -94,7 +96,7 @@ one canonical snapshot and reopen-verified before completion is returned. Exact
 workflow replay returns the original evaluation time and snapshot without
 reading a later evaluation clock; changed evidence or evaluation content
 conflicts without mutation. The workflow adds no durable workflow state, retry,
-reassessment, or current-evidence selection.
+resume, reassessment, or current-evidence selection.
 
 The library can record one immutable human decision against the same verified
 assessment evaluation. It enforces responsible-reviewer identifier equality,
@@ -102,6 +104,11 @@ disposition-specific conditions or information requests, complete ordered
 nonpassing-finding acknowledgment for approvals, UTC recording time, exact
 identity derivation, reopen verification, and business-content-only replay.
 There is no decision CLI yet.
+
+The automated suite contains 256 tests. There is no report generation, AI
+synthesis, authentication, authorization, retry, resume, reassessment,
+decision editing or correction, condition-fulfillment tracking, HTTP API, web
+UI, or new observability infrastructure.
 
 FastAPI, Pydantic, PostgreSQL, model integration, OpenTelemetry, Docker Compose,
 and Grafana-compatible telemetry remain planned or deferred rather than

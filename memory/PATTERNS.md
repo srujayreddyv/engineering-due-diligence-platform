@@ -125,9 +125,10 @@ For the concrete one-shot assessment boundary:
 8. On exact replay, return the stored evaluation snapshot and original
    evaluation time; reject changed content without mutation.
 
-The one-shot boundary persists authoritative request and evidence outputs, not
-workflow state. Retry, resume, reassessment, and current-evidence selection
-require separate explicit rules and must not be inferred from this pattern.
+The one-shot boundary persists the authoritative request, evidence, and one
+reviewed evaluation snapshot, but not workflow state. Retry, resume,
+reassessment, and current-evidence selection require separate explicit rules
+and must not be inferred from this pattern.
 
 ## Command-Line Pattern
 

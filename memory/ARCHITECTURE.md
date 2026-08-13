@@ -50,10 +50,10 @@ record that more information is needed, or reject.
 
 ADR 0002 selects direct review of the verified deterministic assessment for
 the prototype. A generated report is a later presentation capability, not a
-prerequisite for decision authority. The planned durable boundary permits at
-most one immutable assessment-level evaluation snapshot and at most one
-immutable human decision per assessment. `needs_more_information` consumes that
-decision slot; new material information or reconsideration requires a new
+prerequisite for decision authority. The implemented durable boundary permits
+at most one immutable assessment-level evaluation snapshot and at most one
+immutable human decision per assessment. `needs_more_information` consumes
+that decision slot; new material information or reconsideration requires a new
 assessment in the one-shot model.
 
 The decision-maker actor identifier must equal the request's responsible
@@ -79,14 +79,21 @@ The system must preserve:
 9. Human decision
 10. Audit timestamps
 
+Schema v5 currently preserves the request, evidence, complete reviewed metric
+and policy result with its versions, the optional human decision, and their
+record timestamps. Prompt versions, model identifiers, generated reports, and
+general audit history remain unimplemented because the prototype has no report
+or AI boundary yet.
+
 The concrete prototype store is a caller-supplied on-disk SQLite database
-accessed directly through Python `sqlite3`. Schema version 4 covers complete
-valid assessment requests plus terminal public GitHub repository-archived,
-license-status, latest-commit timestamp, and effective-security-policy
-collection outcomes. Exact schema version 3 databases migrate transactionally
-while preserving existing archived, license, and latest-commit content; the
-existing exact version 1 and 2 migrations remain supported. Unsupported
-versions or altered schemas fail closed.
+accessed directly through Python `sqlite3`. Schema version 5 covers complete
+valid assessment requests, terminal outcomes from all four public GitHub
+collectors, one canonical assessment-evaluation snapshot per assessment, and
+at most one immutable human decision per assessment. Exact schema version 4
+databases migrate transactionally by adding the two empty Day 16 tables while
+preserving every prior row; they receive no fabricated historical evaluation
+or decision. The earlier exact migrations remain supported, and unsupported or
+altered schemas fail closed.
 
 The persistence boundary uses linked assessment requests, collection attempts,
 ordered source observations, complete GitHub source snapshots, and compact
@@ -149,7 +156,9 @@ on assessment ID, evidence kind, and attempt number 1. Available and
 unavailable evidence continue the workflow. The first retryable or
 nonretryable failure is persisted and stops later collection and evaluation.
 Only the complete verified four-kind evidence set enters deterministic
-evaluation, and metrics and findings remain transient.
+evaluation. Metrics and findings are calculated as deterministic domain
+records and preserved together inside the one durable reviewed-evaluation
+snapshot rather than in independently managed tables.
 
 `collection_attempted_at` remains durable execution-input provenance; the CLI
 supplies it. After all four authoritative records exist, the workflow first
@@ -174,12 +183,13 @@ logic.
 
 The command returns one versioned JSON document with submitted context,
 canonical evidence summaries, deterministic metrics, policy findings, and an
-explicit `not_implemented` human-decision status. Complete GitHub source
-responses remain only in SQLite. Stable exit codes distinguish usage,
-validation, collection, persistence or verification, unexpected internal, and
-complete outcomes; failure output is sanitized. This boundary adds no HTTP API,
-authentication, report generation, human-decision persistence, or schema
-change.
+explicit `not_implemented` human-decision status. That status describes the CLI
+surface: the library can persist human decisions, but `assess` does not accept
+or record one. Complete GitHub source responses remain only in SQLite. Stable
+exit codes distinguish usage, validation, collection, persistence or
+verification, unexpected internal, and complete outcomes; failure output is
+sanitized. The CLI adds no HTTP API, authentication, authorization, report
+generation, or decision-recording interface.
 
 ## Initial Deployment Shape
 
