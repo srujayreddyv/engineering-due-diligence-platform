@@ -1,13 +1,13 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** Through Day 16, the prototype validates one assessment
+> **Current status:** Through Day 17, the prototype validates one assessment
 > request, persists and reopen-verifies four authoritative public GitHub
 > evidence records, deterministically evaluates them, and preserves the exact
 > reviewed result as one durable `AssessmentEvaluationSnapshot`. SQLite schema
-> version 5 also supports one immutable `HumanDecision` per assessment through
-> the library. The only customer-facing command remains `assess`; there is no
-> `decide` CLI, report generation, AI synthesis, authentication, or
-> authorization. The full suite contains 256 passing tests.
+> version 5 also supports one immutable `HumanDecision` per assessment. The
+> noninteractive `assess -> review -> decide` CLI exposes the complete human-
+> owned decision path without report generation, AI synthesis, authentication,
+> or authorization. The full suite contains 269 passing tests.
 
 ## Customer Problem
 
@@ -66,10 +66,43 @@ assessment request
 
 The snapshot preserves the complete ordered metric and policy result used for
 review while referencing the existing request and evidence records. A human
-owns the final disposition. The library can persist that decision directly
-against the verified snapshot, but the `assess` CLI neither accepts nor records
-human decisions. Its existing `human_decision.status: not_implemented` output
-describes the CLI surface, not the library capability.
+owns the final disposition. `review` loads that exact durable input without
+network, write, or clock activity, and `decide` records the existing immutable
+decision contract. The `assess` command still neither accepts nor records a
+human decision; its retained `human_decision.status: not_implemented` field is
+specific to that backward-compatible output document.
+
+The review step is read-only:
+
+```bash
+PYTHONPATH=src python3 -m engineering_due_diligence.cli review \
+  --database assessment.sqlite3 \
+  --assessment-id assessment-...
+```
+
+The returned `assessment-review-cli-output.v1` JSON includes the verified
+request context, canonical evidence summaries and references, exact durable
+metrics and policy findings, required approval acknowledgments, evaluation
+identity and integrity data, and any existing verified decision. It excludes
+complete GitHub response bodies and does not invent a recommendation.
+
+After reviewing, the asserted responsible reviewer can record the one decision:
+
+```bash
+PYTHONPATH=src python3 -m engineering_due_diligence.cli decide \
+  --database assessment.sqlite3 \
+  --assessment-id assessment-... \
+  --assessment-evaluation-id assessment-evaluation-... \
+  --reviewer-actor-id actor-reviewer \
+  --decision approve \
+  --rationale "The reviewed evidence supports adoption." \
+  --acknowledge-policy-finding policy-finding-...
+```
+
+Repeated condition, information-request, and acknowledgment flags preserve
+their submitted order. `decide` reloads the verified durable evaluation before
+recording, returns `recorded` or authoritative `exact_replay`, and never treats
+the asserted actor ID as authenticated.
 
 ## Scope
 
@@ -420,9 +453,25 @@ Completed on Day 16:
 * 256 repository tests pass. Day 16 adds no decision CLI, report, AI,
   authentication, authorization, workflow state, or condition lifecycle.
 
+Completed on Day 17:
+
+* `review` returns `assessment-review-cli-output.v1` from one read-only SQLite
+  transaction containing the verified request, canonical evidence, exact
+  durable evaluation, required approval acknowledgments, and optional verified
+  decision;
+* `decide` maps noninteractive ordered arguments directly to the existing
+  immutable decision contract and reloads the exact evaluation before writing;
+* first persistence and exact replay are distinguished inside the persistence
+  transaction without a new durable field, and exact replay preserves the
+  original decision identity and recording time;
+* stable exit code 6 reports conflicting immutable decision content while all
+  known and unexpected errors remain versioned and sanitized; and
+* 269 repository tests pass. Day 17 adds no schema change, report, AI,
+  authentication, authorization, workflow state, condition lifecycle, HTTP
+  API, or interactive interface.
+
 Not yet implemented:
 
-* a `decide` CLI or other customer-facing human-decision entry point;
 * generated reports, AI synthesis, authentication, or authorization;
 * retry, resume, reassessment, current-evidence selection, or workflow state;
 * decision editing, correction, supersession, or condition-fulfillment
@@ -437,7 +486,7 @@ Not yet implemented:
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
 | 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy evaluation, all four durable evidence kinds, verified loading, and one-shot execution are complete |
-| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors, one complete one-shot assessment execution, a durable reviewed-evaluation snapshot, an immutable human-decision library boundary, and a minimal assessment CLI are verified; reporting, a decision CLI, general audit history, and observability remain planned |
+| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors, one complete one-shot assessment execution, durable reviewed evaluations, immutable human decisions, and the noninteractive `assess -> review -> decide` CLI are verified; reporting, general audit history, and observability remain planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
 Milestones describe intended sequencing and are not claims of completed
@@ -509,10 +558,10 @@ evidence kinds, strict read-only durable evidence loading, one canonical
 assessment-evaluation snapshot per assessment, and at most one immutable human
 decision per assessment. One-shot execution persists the reviewed snapshot and
 exact replay returns its original evaluation time after request and evidence
-verification. A minimal `assess` command exposes assessment execution as
-versioned JSON; the decision capability remains library-only. There is no
-`decide` command, report generation, AI synthesis, authentication,
-authorization, HTTP API, or web UI.
+verification. The noninteractive `assess`, read-only `review`, and immutable
+`decide` commands expose the customer flow as versioned JSON. There is no report
+generation, AI synthesis, authentication, authorization, HTTP API, or web UI.
+
 Run its tests from the repository root with:
 
 ```bash
@@ -529,8 +578,8 @@ Before planning or editing:
 4. read relevant ADRs and the current task plan; and
 5. preserve the locked scope and documentation-layer boundaries.
 
-The latest completed implementation plan is
-[plans/day_16_durable_evaluation_and_human_decision.md](plans/day_16_durable_evaluation_and_human_decision.md).
+The latest implementation plan is
+[plans/day_17_review_and_decide_cli.md](plans/day_17_review_and_decide_cli.md).
 The durable storage and direct-review decisions are recorded in
 [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md) and
 [ADR 0002](docs/adr/0002_direct_deterministic_review_for_prototype_decisions.md).

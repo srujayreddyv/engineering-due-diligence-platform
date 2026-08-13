@@ -139,8 +139,16 @@ assessment-level identifier is derived from the same payload; the narrower
 migration, fail-closed, replay, conflict, temporal, and close-and-reopen
 verification behavior. The human decision is bound to the same assessment and
 evaluation, to the request's asserted responsible reviewer identifier, and to
-the exact ordered acknowledgment rules. The library implements this boundary;
-the CLI does not yet expose it.
+the exact ordered acknowledgment rules. The library and noninteractive
+`review` and `decide` commands expose this boundary without changing it.
+
+The review read boundary uses one read-only, query-only SQLite transaction to
+reconstruct the valid request, four authoritative evidence records, exact
+evaluation snapshot, and optional human decision. It captures no time, performs
+no network request or write, creates no artifact, and uses deterministic
+reconstruction only at the snapshot's stored `evaluated_at` as required for
+authority verification. Decision replay status is transient operation output
+derived inside the existing write transaction; it is not a durable field.
 
 ## One-Shot Execution Boundary
 
@@ -175,21 +183,29 @@ identity conflicts without mutation.
 
 ## Command-Line Boundary
 
-The first customer-facing boundary is one dependency-free `assess` command. It
-owns generation of the assessment ID, submission timestamp, and collection
-timestamp, then delegates exactly once to the one-shot execution boundary. It
-does not duplicate validation, collection, persistence, metric, or policy
-logic.
+The dependency-free customer boundary is a noninteractive
+`assess -> review -> decide` flow. `assess` owns generation of the assessment
+ID, submission timestamp, and collection timestamp, then delegates exactly once
+to the one-shot execution boundary. It does not duplicate validation,
+collection, persistence, metric, or policy logic and does not accept or record
+a human decision.
 
-The command returns one versioned JSON document with submitted context,
-canonical evidence summaries, deterministic metrics, policy findings, and an
-explicit `not_implemented` human-decision status. That status describes the CLI
-surface: the library can persist human decisions, but `assess` does not accept
-or record one. Complete GitHub source responses remain only in SQLite. Stable
-exit codes distinguish usage, validation, collection, persistence or
-verification, unexpected internal, and complete outcomes; failure output is
-sanitized. The CLI adds no HTTP API, authentication, authorization, report
-generation, or decision-recording interface.
+`review` accepts an existing assessment ID and returns versioned JSON containing
+the verified request context, canonical evidence summaries and references,
+complete durable metrics and policy findings, evaluation identity and integrity
+data, required approval acknowledgments, and any existing verified decision.
+It is a direct presentation of durable deterministic records, not a generated
+report or recommendation.
+
+`decide` accepts the exact assessment and evaluation identifiers plus the eight
+existing caller-supplied decision business fields. It verifies the referenced
+evaluation before invoking the existing immutable persistence boundary, which
+remains authoritative for reviewer matching, disposition shape,
+acknowledgments, timestamps, replay, and conflicts. Successful versioned JSON
+returns `recorded` or `exact_replay`; changed business content uses exit code 6.
+Complete GitHub source responses remain only in SQLite, all failures are
+sanitized, and no command adds an HTTP API, interactive input, authentication,
+authorization, report generation, workflow state, or condition management.
 
 ## Initial Deployment Shape
 

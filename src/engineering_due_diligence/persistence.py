@@ -9,7 +9,10 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Tuple, Union
+
+if TYPE_CHECKING:
+    from .assessment import AssessmentEvaluationSnapshot
 
 from .github import (
     GitHubCollectionOutcome,
@@ -4854,7 +4857,54 @@ def load_verified_human_decision(
     return decision
 
 
-def persist_human_decision(
+def load_verified_assessment_review(
+    database_path: _DatabasePath,
+    assessment_id: str,
+) -> tuple[
+    VerifiedAssessmentEvidenceSet,
+    "AssessmentEvaluationSnapshot",
+    Optional[HumanDecision],
+]:
+    """Load one complete review input from one read-only transaction."""
+
+    filename = _database_filename(database_path)
+    _validate_record_identifier("assessment_id", assessment_id)
+    connection = _connect_read_only_v5(filename)
+    try:
+        _read_request(connection, assessment_id)
+        snapshot = _evaluation_snapshot_from_connection(
+            connection, assessment_id
+        )
+        verified_evidence = _verified_assessment_evidence_set_from_connection(
+            connection, assessment_id
+        )
+        decision_rows = connection.execute(
+            "SELECT human_decision_id FROM human_decisions "
+            "WHERE assessment_id = ?",
+            (assessment_id,),
+        ).fetchall()
+        if len(decision_rows) > 1:
+            raise ValueError("human decision is not unique")
+        decision = (
+            _human_decision_from_connection(connection, assessment_id)
+            if decision_rows
+            else None
+        )
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise ValueError("foreign key verification failed")
+    except SQLitePersistenceError:
+        raise
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+        raise _error("verification_failed") from None
+    except sqlite3.Error:
+        raise _error("verification_failed") from None
+    finally:
+        _rollback_safely(connection)
+        _close_safely(connection)
+    return verified_evidence, snapshot, decision
+
+
+def _persist_human_decision(
     database_path: _DatabasePath,
     *,
     assessment_id: str,
@@ -4864,10 +4914,8 @@ def persist_human_decision(
     rationale: str,
     conditions: tuple[str, ...] = (),
     information_requests: tuple[str, ...] = (),
-    acknowledged_policy_finding_ids: tuple[str, ...] = (),
-) -> HumanDecision:
-    """Record or exactly replay the one immutable decision for an assessment."""
-
+    acknowledged_policy_finding_ids: tuple[str, ...],
+) -> tuple[HumanDecision, bool]:
     filename = _database_filename(database_path)
     connection = _connect(filename)
     replay = False
@@ -4999,4 +5047,60 @@ def persist_human_decision(
     stored = load_verified_human_decision(filename, assessment_id)
     if stored != decision:
         raise _error("conflicting_replay" if replay else "verification_failed")
-    return stored
+    return stored, replay
+
+
+def persist_human_decision(
+    database_path: _DatabasePath,
+    *,
+    assessment_id: str,
+    assessment_evaluation_id: str,
+    decision_maker_actor_id: str,
+    disposition: HumanDecisionDisposition,
+    rationale: str,
+    conditions: tuple[str, ...] = (),
+    information_requests: tuple[str, ...] = (),
+    acknowledged_policy_finding_ids: tuple[str, ...] = (),
+) -> HumanDecision:
+    """Record or exactly replay the one immutable decision for an assessment."""
+
+    decision, _ = _persist_human_decision(
+        database_path,
+        assessment_id=assessment_id,
+        assessment_evaluation_id=assessment_evaluation_id,
+        decision_maker_actor_id=decision_maker_actor_id,
+        disposition=disposition,
+        rationale=rationale,
+        conditions=conditions,
+        information_requests=information_requests,
+        acknowledged_policy_finding_ids=acknowledged_policy_finding_ids,
+    )
+    return decision
+
+
+def persist_human_decision_with_status(
+    database_path: _DatabasePath,
+    *,
+    assessment_id: str,
+    assessment_evaluation_id: str,
+    decision_maker_actor_id: str,
+    disposition: HumanDecisionDisposition,
+    rationale: str,
+    conditions: tuple[str, ...] = (),
+    information_requests: tuple[str, ...] = (),
+    acknowledged_policy_finding_ids: tuple[str, ...] = (),
+) -> tuple[HumanDecision, str]:
+    """Record or replay one decision and return the authoritative result."""
+
+    decision, replay = _persist_human_decision(
+        database_path,
+        assessment_id=assessment_id,
+        assessment_evaluation_id=assessment_evaluation_id,
+        decision_maker_actor_id=decision_maker_actor_id,
+        disposition=disposition,
+        rationale=rationale,
+        conditions=conditions,
+        information_requests=information_requests,
+        acknowledged_policy_finding_ids=acknowledged_policy_finding_ids,
+    )
+    return decision, "exact_replay" if replay else "recorded"

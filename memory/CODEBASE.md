@@ -63,17 +63,26 @@ not legal or compatibility analysis. Security-policy presence includes
 repository-local `SECURITY.md` files and inherited defaults from the owner's
 public `.github` repository.
 
-The minimal customer-facing boundary is
-`python -m engineering_due_diligence.cli assess`. It requires one database path
-and the complete submitted assessment context, privately generates a lowercase
-UUID4 assessment ID plus aware UTC submission and collection timestamps, and
-calls the one-shot workflow once. The workflow—not the CLI input—captures the
-aware evaluation timestamp only after all four authoritative evidence records
-exist. Versioned `assessment-cli-output.v1` JSON returns canonical evidence,
-metrics, and policy findings without complete GitHub response bodies or an
-aggregate recommendation. It does not yet expose the implemented human-
-decision library capability. Stable exit codes distinguish complete, internal,
-usage, validation, collection, and persistence or verification outcomes.
+The minimal customer-facing boundary is a noninteractive
+`assess -> review -> decide` command-line flow. `assess` requires one database
+path and the complete submitted assessment context, privately generates a
+lowercase UUID4 assessment ID plus aware UTC submission and collection
+timestamps, and calls the one-shot workflow once. The workflow—not the CLI
+input—captures the aware evaluation timestamp only after all four authoritative
+evidence records exist. Versioned `assessment-cli-output.v1` JSON returns
+canonical evidence, metrics, and policy findings without complete GitHub
+response bodies or an aggregate recommendation.
+
+`review` accepts only the database path and assessment ID. One read-only SQLite
+transaction reconstructs the valid request, complete authoritative evidence,
+exact durable evaluation, and optional verified decision. Versioned
+`assessment-review-cli-output.v1` JSON exposes canonical review content and the
+ordered nonpassing finding IDs required for approval without performing network
+requests, writes, new evaluation, or clock capture. `decide` accepts the exact
+evaluation reference and existing human-decision business fields, reloads the
+verified evaluation, and delegates validation and recording to persistence.
+Versioned `human-decision-cli-output.v1` JSON distinguishes first recording
+from exact replay and states that actor identifiers are caller asserted.
 
 SQLite schema version 5 stores all four evidence kinds in separate typed
 columns and adds ordered GitHub source observations plus multiple source
@@ -103,9 +112,10 @@ assessment evaluation. It enforces responsible-reviewer identifier equality,
 disposition-specific conditions or information requests, complete ordered
 nonpassing-finding acknowledgment for approvals, UTC recording time, exact
 identity derivation, reopen verification, and business-content-only replay.
-There is no decision CLI yet.
+The CLI exposes this existing capability without adding a durable replay-status
+field; `recorded` or `exact_replay` is returned from the persistence transaction.
 
-The automated suite contains 256 tests. There is no report generation, AI
+The automated suite contains 269 tests. There is no report generation, AI
 synthesis, authentication, authorization, retry, resume, reassessment,
 decision editing or correction, condition-fulfillment tracking, HTTP API, web
 UI, or new observability infrastructure.

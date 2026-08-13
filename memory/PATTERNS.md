@@ -132,7 +132,7 @@ and must not be inferred from this pattern.
 
 ## Command-Line Pattern
 
-For the minimal assessment command:
+For `assess`:
 
 1. Require the full submitted business context and caller-supplied on-disk
    database path; do not expose internal identifiers, attempt numbers,
@@ -148,6 +148,21 @@ For the minimal assessment command:
 5. Map usage, validation, collection, persistence or verification, internal,
    and complete outcomes to stable exit codes, and expose only constant safe
    internal failure output when unexpected execution or serialization fails.
+
+For `review` and `decide`:
+
+1. Load review content through one read-only persistence transaction that
+   verifies the request, evidence, durable evaluation, and optional decision;
+   do not recollect, write, or capture a new time for presentation.
+2. Require decision callers to identify the exact reviewed evaluation, reload
+   it before recording, and pass ordered business fields directly to the
+   existing persistence validator rather than reimplementing disposition rules
+   in the CLI.
+3. Derive `recorded` versus `exact_replay` inside the persistence transaction;
+   never infer it through a race-prone CLI read or add a durable status field.
+4. Preserve repeated condition, information-request, and acknowledgment order,
+   expose actor labels as caller asserted, and reserve conflict output for
+   changed immutable decision business content.
 
 ## Testing Pattern
 

@@ -1,4 +1,4 @@
-"""Minimal machine-readable command line interface for one assessment."""
+"""Minimal machine-readable assessment, review, and decision interface."""
 
 from __future__ import annotations
 
@@ -10,8 +10,19 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Sequence, TextIO, Type
 
-from .models import Criticality, Environment, RiskTolerance
-from .persistence import SQLitePersistenceError
+from .models import (
+    Criticality,
+    Environment,
+    HumanDecisionDisposition,
+    PolicyOutcome,
+    RiskTolerance,
+)
+from .persistence import (
+    SQLitePersistenceError,
+    load_verified_assessment_evaluation_snapshot,
+    load_verified_assessment_review,
+    persist_human_decision_with_status,
+)
 from .request import REQUEST_DEFINITION_VERSION, AssessmentRequestInput
 from .workflow import (
     AssessmentExecutionInput,
@@ -22,8 +33,14 @@ from .workflow import (
 
 
 _OUTPUT_SCHEMA_VERSION = "assessment-cli-output.v1"
+_REVIEW_OUTPUT_SCHEMA_VERSION = "assessment-review-cli-output.v1"
+_DECISION_OUTPUT_SCHEMA_VERSION = "human-decision-cli-output.v1"
 _USAGE_ERROR_MESSAGE = "The command arguments are invalid."
 _INTERNAL_ERROR_MESSAGE = "The assessment could not be completed."
+_REVIEW_INTERNAL_ERROR_MESSAGE = "The assessment review could not be loaded."
+_DECISION_INTERNAL_ERROR_MESSAGE = "The human decision could not be recorded."
+_DECISION_VALIDATION_ERROR_MESSAGE = "The human decision input is invalid."
+_ACTOR_IDENTITY_ASSURANCE = "caller_asserted_not_authenticated"
 
 _EXIT_COMPLETE = 0
 _EXIT_INTERNAL = 1
@@ -31,6 +48,7 @@ _EXIT_USAGE = 2
 _EXIT_INVALID_REQUEST = 3
 _EXIT_COLLECTION_FAILED = 4
 _EXIT_PERSISTENCE_FAILED = 5
+_EXIT_CONFLICTING_DECISION = 6
 
 
 class _CLIUsageError(Exception):
@@ -81,6 +99,21 @@ def _build_parser() -> _ArgumentParser:
     assess.add_argument("--risk-tolerance", required=True)
     assess.add_argument("--submitted-by-actor-id", required=True)
     assess.add_argument("--responsible-reviewer-actor-id", required=True)
+
+    review = commands.add_parser("review", add_help=False)
+    review.add_argument("--database", required=True)
+    review.add_argument("--assessment-id", required=True)
+
+    decide = commands.add_parser("decide", add_help=False)
+    decide.add_argument("--database", required=True)
+    decide.add_argument("--assessment-id", required=True)
+    decide.add_argument("--assessment-evaluation-id", required=True)
+    decide.add_argument("--reviewer-actor-id", required=True)
+    decide.add_argument("--decision", required=True)
+    decide.add_argument("--rationale", required=True)
+    decide.add_argument("--condition", action="append")
+    decide.add_argument("--information-request", action="append")
+    decide.add_argument("--acknowledge-policy-finding", action="append")
     return parser
 
 
@@ -233,6 +266,24 @@ def _finding_summary(finding):
     }
 
 
+def _human_decision_summary(decision):
+    return {
+        "human_decision_id": decision.human_decision_id,
+        "assessment_id": decision.assessment_id,
+        "assessment_evaluation_id": decision.assessment_evaluation_id,
+        "decision_maker_actor_id": decision.decision_maker_actor_id,
+        "disposition": decision.disposition.value,
+        "rationale": decision.rationale,
+        "conditions": list(decision.conditions),
+        "information_requests": list(decision.information_requests),
+        "acknowledged_policy_finding_ids": list(
+            decision.acknowledged_policy_finding_ids
+        ),
+        "recorded_at": decision.recorded_at.isoformat(),
+        "decision_schema_version": decision.decision_schema_version,
+    }
+
+
 def _empty_output(status: str):
     return {
         "output_schema_version": _OUTPUT_SCHEMA_VERSION,
@@ -247,6 +298,118 @@ def _empty_output(status: str):
         "policy_findings": [],
         "human_decision": {"status": "not_implemented"},
     }
+
+
+def _empty_review_output(status: str):
+    return {
+        "output_schema_version": _REVIEW_OUTPUT_SCHEMA_VERSION,
+        "status": status,
+        "assessment_id": None,
+        "repository_identity": None,
+        "assessment_context": None,
+        "submitted_at": None,
+        "responsible_reviewer_actor_id": None,
+        "assessment_evaluation_id": None,
+        "evaluated_at": None,
+        "evaluation_schema_version": None,
+        "integrity_digest": None,
+        "evidence_records": [],
+        "evidence_references": [],
+        "metric_results": [],
+        "policy_findings": [],
+        "required_approval_acknowledgments": [],
+        "human_decision": {"status": "unknown"},
+        "error": None,
+    }
+
+
+def _review_output(review):
+    verified_evidence, snapshot, decision = review
+    validation_result = verified_evidence.validation_result
+    request = validation_result.request
+    output = _empty_review_output("review_complete")
+    output.update(
+        {
+            "assessment_id": request.assessment_id,
+            "repository_identity": (
+                validation_result.normalized_repository_identity
+            ),
+            "assessment_context": _context_summary(
+                validation_result.context
+            ),
+            "submitted_at": request.submitted_at.isoformat(),
+            "responsible_reviewer_actor_id": (
+                request.responsible_reviewer_actor_id
+            ),
+            "assessment_evaluation_id": (
+                snapshot.assessment_evaluation_id
+            ),
+            "evaluated_at": snapshot.evaluated_at.isoformat(),
+            "evaluation_schema_version": (
+                snapshot.evaluation_schema_version
+            ),
+            "integrity_digest": snapshot.integrity_digest,
+            "evidence_records": [
+                _evidence_summary(record)
+                for record in verified_evidence.evidence_records
+            ],
+            "evidence_references": [
+                {
+                    "evidence_kind": evidence_kind.value,
+                    "evidence_id": evidence_id,
+                }
+                for evidence_kind, evidence_id in snapshot.evidence_references
+            ],
+            "metric_results": [
+                _metric_summary(metric)
+                for metric in snapshot.metric_results
+            ],
+            "policy_findings": [
+                _finding_summary(finding)
+                for finding in snapshot.policy_findings
+            ],
+            "required_approval_acknowledgments": [
+                finding.policy_finding_id
+                for finding in snapshot.policy_findings
+                if finding.outcome is not PolicyOutcome.PASS
+            ],
+            "human_decision": (
+                {"status": "not_recorded"}
+                if decision is None
+                else {
+                    "status": "recorded",
+                    **_human_decision_summary(decision),
+                }
+            ),
+        }
+    )
+    return output
+
+
+def _empty_decision_output(status: str):
+    return {
+        "output_schema_version": _DECISION_OUTPUT_SCHEMA_VERSION,
+        "status": status,
+        "human_decision_id": None,
+        "assessment_id": None,
+        "assessment_evaluation_id": None,
+        "decision_maker_actor_id": None,
+        "disposition": None,
+        "rationale": None,
+        "conditions": [],
+        "information_requests": [],
+        "acknowledged_policy_finding_ids": [],
+        "recorded_at": None,
+        "decision_schema_version": None,
+        "actor_identity_assurance": _ACTOR_IDENTITY_ASSURANCE,
+        "error": None,
+    }
+
+
+def _decision_output(decision, status: str):
+    output = _empty_decision_output(status)
+    output.update(_human_decision_summary(decision))
+    return output
 
 
 def _execution_output(result: AssessmentExecutionResult):
@@ -315,6 +478,110 @@ def _safe_error_output(status: str, category: str, message: str):
     return output
 
 
+def _review_error_output(status: str, category: str, message: str):
+    output = _empty_review_output(status)
+    output["error"] = {"category": category, "message": message}
+    return output
+
+
+def _decision_error_output(status: str, category: str, message: str):
+    output = _empty_decision_output(status)
+    output["error"] = {"category": category, "message": message}
+    return output
+
+
+def _command_from_arguments(argv: Optional[Sequence[str]]) -> Optional[str]:
+    values = tuple(sys.argv[1:] if argv is None else argv)
+    if values and values[0] in ("assess", "review", "decide"):
+        return values[0]
+    return None
+
+
+def _usage_error_output(command: Optional[str]):
+    if command == "review":
+        return _review_error_output(
+            "usage_error", "usage_error", _USAGE_ERROR_MESSAGE
+        )
+    if command == "decide":
+        return _decision_error_output(
+            "usage_error", "usage_error", _USAGE_ERROR_MESSAGE
+        )
+    return _safe_error_output(
+        "usage_error", "usage_error", _USAGE_ERROR_MESSAGE
+    )
+
+
+def _internal_error_output(command: Optional[str]):
+    if command == "review":
+        return _review_error_output(
+            "internal_error",
+            "internal_error",
+            _REVIEW_INTERNAL_ERROR_MESSAGE,
+        )
+    if command == "decide":
+        return _decision_error_output(
+            "internal_error",
+            "internal_error",
+            _DECISION_INTERNAL_ERROR_MESSAGE,
+        )
+    return _safe_error_output(
+        "internal_error", "internal_error", _INTERNAL_ERROR_MESSAGE
+    )
+
+
+def _known_persistence_error_output(
+    command: str,
+    error: SQLitePersistenceError,
+    execution_input: Optional[AssessmentExecutionInput],
+):
+    if command == "review":
+        if error.category == "invalid_input":
+            return (
+                _review_error_output(
+                    "validation_failed",
+                    "invalid_review",
+                    "The assessment review input is invalid.",
+                ),
+                _EXIT_INVALID_REQUEST,
+            )
+        return (
+            _review_error_output(
+                "persistence_failed", error.category, error.message
+            ),
+            _EXIT_PERSISTENCE_FAILED,
+        )
+    if command == "decide":
+        if error.category == "invalid_input":
+            return (
+                _decision_error_output(
+                    "validation_failed",
+                    "invalid_decision",
+                    _DECISION_VALIDATION_ERROR_MESSAGE,
+                ),
+                _EXIT_INVALID_REQUEST,
+            )
+        if error.category == "conflicting_replay":
+            return (
+                _decision_error_output(
+                    "conflicting_decision", error.category, error.message
+                ),
+                _EXIT_CONFLICTING_DECISION,
+            )
+        return (
+            _decision_error_output(
+                "persistence_failed", error.category, error.message
+            ),
+            _EXIT_PERSISTENCE_FAILED,
+        )
+    if execution_input is None:
+        output = _safe_error_output(
+            "persistence_failed", error.category, error.message
+        )
+    else:
+        output = _persistence_failure_output(execution_input, error)
+    return output, _EXIT_PERSISTENCE_FAILED
+
+
 def _write_json(stream: TextIO, output) -> None:
     document = json.dumps(
         output,
@@ -349,55 +616,97 @@ def _request_from_arguments(arguments) -> AssessmentRequestInput:
     )
 
 
+def _run_review(arguments):
+    review = load_verified_assessment_review(
+        arguments.database, arguments.assessment_id
+    )
+    return _review_output(review), _EXIT_COMPLETE
+
+
+def _run_decide(arguments):
+    try:
+        disposition = HumanDecisionDisposition(arguments.decision)
+    except ValueError:
+        return (
+            _decision_error_output(
+                "validation_failed",
+                "invalid_decision",
+                _DECISION_VALIDATION_ERROR_MESSAGE,
+            ),
+            _EXIT_INVALID_REQUEST,
+        )
+    snapshot = load_verified_assessment_evaluation_snapshot(
+        arguments.database, arguments.assessment_id
+    )
+    if (
+        snapshot.assessment_id != arguments.assessment_id
+        or snapshot.assessment_evaluation_id
+        != arguments.assessment_evaluation_id
+    ):
+        return (
+            _decision_error_output(
+                "validation_failed",
+                "invalid_decision",
+                _DECISION_VALIDATION_ERROR_MESSAGE,
+            ),
+            _EXIT_INVALID_REQUEST,
+        )
+    decision, status = persist_human_decision_with_status(
+        arguments.database,
+        assessment_id=arguments.assessment_id,
+        assessment_evaluation_id=arguments.assessment_evaluation_id,
+        decision_maker_actor_id=arguments.reviewer_actor_id,
+        disposition=disposition,
+        rationale=arguments.rationale,
+        conditions=tuple(arguments.condition or ()),
+        information_requests=tuple(arguments.information_request or ()),
+        acknowledged_policy_finding_ids=tuple(
+            arguments.acknowledge_policy_finding or ()
+        ),
+    )
+    return _decision_output(decision, status), _EXIT_COMPLETE
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Run one command and return its stable process exit code."""
 
+    command = _command_from_arguments(argv)
     try:
         arguments = _build_parser().parse_args(argv)
     except _CLIUsageError:
-        _write_json(
-            sys.stderr,
-            _safe_error_output(
-                "usage_error", "usage_error", _USAGE_ERROR_MESSAGE
-            ),
-        )
+        _write_json(sys.stderr, _usage_error_output(command))
         return _EXIT_USAGE
 
     execution_input = None
     try:
-        request = _request_from_arguments(arguments)
-        execution_input = AssessmentExecutionInput(
-            request=request,
-            collection_attempted_at=_current_utc_time(),
-        )
-        result = execute_assessment(arguments.database, execution_input)
-        output, exit_code = _execution_output(result)
-    except SQLitePersistenceError as error:
-        if execution_input is None:
-            output = _safe_error_output(
-                "persistence_failed", error.category, error.message
+        if arguments.command == "assess":
+            request = _request_from_arguments(arguments)
+            execution_input = AssessmentExecutionInput(
+                request=request,
+                collection_attempted_at=_current_utc_time(),
             )
+            result = execute_assessment(
+                arguments.database, execution_input
+            )
+            output, exit_code = _execution_output(result)
+        elif arguments.command == "review":
+            output, exit_code = _run_review(arguments)
+        elif arguments.command == "decide":
+            output, exit_code = _run_decide(arguments)
         else:
-            output = _persistence_failure_output(execution_input, error)
-        exit_code = _EXIT_PERSISTENCE_FAILED
-    except Exception:
-        _write_json(
-            sys.stderr,
-            _safe_error_output(
-                "internal_error", "internal_error", _INTERNAL_ERROR_MESSAGE
-            ),
+            raise ValueError("unsupported command")
+    except SQLitePersistenceError as error:
+        output, exit_code = _known_persistence_error_output(
+            arguments.command, error, execution_input
         )
+    except Exception:
+        _write_json(sys.stderr, _internal_error_output(command))
         return _EXIT_INTERNAL
 
     try:
         _write_json(sys.stdout, output)
     except Exception:
-        _write_json(
-            sys.stderr,
-            _safe_error_output(
-                "internal_error", "internal_error", _INTERNAL_ERROR_MESSAGE
-            ),
-        )
+        _write_json(sys.stderr, _internal_error_output(command))
         return _EXIT_INTERNAL
     return exit_code
 
