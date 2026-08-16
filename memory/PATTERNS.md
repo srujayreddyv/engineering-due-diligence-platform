@@ -163,6 +163,13 @@ For `review` and `decide`:
 4. Preserve repeated condition, information-request, and acknowledgment order,
    expose actor labels as caller asserted, and reserve conflict output for
    changed immutable decision business content.
+5. Treat deterministic Markdown as an alternate rendering of the same verified
+   review object: preserve canonical record order, derive attention and
+   acknowledgment lists only from verified records, read no clock, add no
+   database access, and never recalculate, recommend, or persist the report.
+6. Keep the JSON review default and versioned contract unchanged; known
+   Markdown review failures continue through the same sanitized JSON error
+   boundary.
 
 ## Testing Pattern
 

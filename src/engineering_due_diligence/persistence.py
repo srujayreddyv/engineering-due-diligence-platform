@@ -56,6 +56,16 @@ _LATEST_COMMIT_NORMALIZATION_VERSION = "latest-commit-normalization.v1"
 _SECURITY_POLICY_NORMALIZATION_VERSION = (
     "security-policy-presence-normalization.v1"
 )
+_NORMALIZATION_VERSION_BY_EVIDENCE_KIND = {
+    EvidenceKind.REPOSITORY_ARCHIVED: _ARCHIVED_NORMALIZATION_VERSION,
+    EvidenceKind.LICENSE_STATUS: _LICENSE_NORMALIZATION_VERSION,
+    EvidenceKind.LATEST_COMMIT_TIMESTAMP: (
+        _LATEST_COMMIT_NORMALIZATION_VERSION
+    ),
+    EvidenceKind.SECURITY_POLICY_PRESENT: (
+        _SECURITY_POLICY_NORMALIZATION_VERSION
+    ),
+}
 _ARCHIVED_COLLECTOR_NAME = "public-github-repository-metadata"
 _LICENSE_COLLECTOR_NAME = "public-github-license-status"
 _LATEST_COMMIT_COLLECTOR_NAME = "public-github-latest-commit"
@@ -72,6 +82,13 @@ _LICENSE_EVIDENCE_PREFIX = "license-status-evidence-"
 _LATEST_COMMIT_EVIDENCE_PREFIX = "latest-commit-evidence-"
 _SECURITY_POLICY_EVIDENCE_PREFIX = "security-policy-evidence-"
 _SECURITY_OBSERVATION_PREFIX = "github-security-source-observation-"
+
+
+def evidence_normalization_version(evidence_kind: EvidenceKind) -> str:
+    """Return the normalization version admitted for an evidence kind."""
+
+    return _NORMALIZATION_VERSION_BY_EVIDENCE_KIND[evidence_kind]
+
 
 _ERROR_MESSAGES = {
     "invalid_input": "The persistence input is invalid.",
@@ -2872,16 +2889,8 @@ def _collection_result_from_rows(
 
 def _evidence_from_row(row: sqlite3.Row) -> EvidenceRecord:
     evidence_kind = EvidenceKind(row["evidence_kind"])
-    expected_normalization_version = (
-        _ARCHIVED_NORMALIZATION_VERSION
-        if evidence_kind is EvidenceKind.REPOSITORY_ARCHIVED
-        else _LICENSE_NORMALIZATION_VERSION
-        if evidence_kind is EvidenceKind.LICENSE_STATUS
-        else _LATEST_COMMIT_NORMALIZATION_VERSION
-        if evidence_kind is EvidenceKind.LATEST_COMMIT_TIMESTAMP
-        else _SECURITY_POLICY_NORMALIZATION_VERSION
-        if evidence_kind is EvidenceKind.SECURITY_POLICY_PRESENT
-        else None
+    expected_normalization_version = evidence_normalization_version(
+        evidence_kind
     )
     if row["normalization_version"] != expected_normalization_version:
         raise ValueError("normalization version is not supported")

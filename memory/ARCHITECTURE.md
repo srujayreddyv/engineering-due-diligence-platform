@@ -82,8 +82,9 @@ The system must preserve:
 Schema v5 currently preserves the request, evidence, complete reviewed metric
 and policy result with its versions, the optional human decision, and their
 record timestamps. Prompt versions, model identifiers, generated reports, and
-general audit history remain unimplemented because the prototype has no report
-or AI boundary yet.
+general audit history remain unimplemented. The deterministic Markdown review
+is a transient presentation over verified records, not a generated or durable
+business record and not an AI boundary.
 
 The concrete prototype store is a caller-supplied on-disk SQLite database
 accessed directly through Python `sqlite3`. Schema version 5 covers complete
@@ -194,8 +195,12 @@ a human decision.
 the verified request context, canonical evidence summaries and references,
 complete durable metrics and policy findings, evaluation identity and integrity
 data, required approval acknowledgments, and any existing verified decision.
-It is a direct presentation of durable deterministic records, not a generated
-report or recommendation.
+It also accepts `--format markdown` to render
+`assessment-review-report.v1` from the same already-loaded verified review
+object. Both formats are direct presentations of durable deterministic records,
+not a generated recommendation. Markdown is transient and deterministic, reads
+no clock, performs no additional load or write, and preserves the visible
+separation between evidence, metrics, findings, and the human decision.
 
 `decide` accepts the exact assessment and evaluation identifiers plus the eight
 existing caller-supplied decision business fields. It verifies the referenced
@@ -205,7 +210,8 @@ acknowledgments, timestamps, replay, and conflicts. Successful versioned JSON
 returns `recorded` or `exact_replay`; changed business content uses exit code 6.
 Complete GitHub source responses remain only in SQLite, all failures are
 sanitized, and no command adds an HTTP API, interactive input, authentication,
-authorization, report generation, workflow state, or condition management.
+authorization, AI synthesis, report persistence, workflow state, or condition
+management.
 
 ## Initial Deployment Shape
 

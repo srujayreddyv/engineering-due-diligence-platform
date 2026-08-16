@@ -84,6 +84,15 @@ verified evaluation, and delegates validation and recording to persistence.
 Versioned `human-decision-cli-output.v1` JSON distinguishes first recording
 from exact replay and states that actor identifiers are caller asserted.
 
+The same `review` command supports an additive `--format markdown` presentation.
+Versioned `assessment-review-report.v1` is rendered deterministically from the
+one already-loaded verified review object. It separates context, attention
+items, evidence and unavailable information, exact metrics, policy findings,
+the optional decision, and technical provenance. It is transient, reads no
+clock, adds no database access or write, exposes no source body, and makes no
+recommendation. Omitted format and explicit `json` preserve the Day 17 JSON
+contract byte-for-byte.
+
 SQLite schema version 5 stores all four evidence kinds in separate typed
 columns and adds ordered GitHub source observations plus multiple source
 snapshots for bounded multi-request collection. It adds one canonical
@@ -115,8 +124,8 @@ identity derivation, reopen verification, and business-content-only replay.
 The CLI exposes this existing capability without adding a durable replay-status
 field; `recorded` or `exact_replay` is returned from the persistence transaction.
 
-The automated suite contains 269 tests. There is no report generation, AI
-synthesis, authentication, authorization, retry, resume, reassessment,
+The automated suite contains 281 tests. There is no AI synthesis, durable
+report record, authentication, authorization, retry, resume, reassessment,
 decision editing or correction, condition-fulfillment tracking, HTTP API, web
 UI, or new observability infrastructure.
 

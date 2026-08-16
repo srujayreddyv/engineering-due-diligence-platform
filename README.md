@@ -1,13 +1,15 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** Through Day 17, the prototype validates one assessment
+> **Current status:** Through Day 18, the prototype validates one assessment
 > request, persists and reopen-verifies four authoritative public GitHub
 > evidence records, deterministically evaluates them, and preserves the exact
 > reviewed result as one durable `AssessmentEvaluationSnapshot`. SQLite schema
 > version 5 also supports one immutable `HumanDecision` per assessment. The
 > noninteractive `assess -> review -> decide` CLI exposes the complete human-
-> owned decision path without report generation, AI synthesis, authentication,
-> or authorization. The full suite contains 269 passing tests.
+> owned decision path. `review` can return either its backward-compatible JSON
+> or a transient deterministic Markdown report without AI synthesis, report
+> persistence, authentication, or authorization. The full suite contains 281
+> passing tests.
 
 ## Customer Problem
 
@@ -85,6 +87,24 @@ request context, canonical evidence summaries and references, exact durable
 metrics and policy findings, required approval acknowledgments, evaluation
 identity and integrity data, and any existing verified decision. It excludes
 complete GitHub response bodies and does not invent a recommendation.
+
+For a terminal-friendly deterministic presentation of the same verified
+review object:
+
+```bash
+PYTHONPATH=src python3 -m engineering_due_diligence.cli review \
+  --database assessment.sqlite3 \
+  --assessment-id assessment-... \
+  --format markdown
+```
+
+The `assessment-review-report.v1` Markdown separates assessment context,
+attention items, observed and unavailable evidence, exact metrics, policy
+findings, the optional human decision, and technical provenance. It reads no
+clock, performs no additional database load or write, creates no durable
+report, includes no raw GitHub body, and makes no overall recommendation.
+Omitting `--format` or selecting `--format json` preserves the existing JSON
+contract exactly.
 
 After reviewing, the asserted responsible reviewer can record the one decision:
 
@@ -470,9 +490,25 @@ Completed on Day 17:
   authentication, authorization, workflow state, condition lifecycle, HTTP
   API, or interactive interface.
 
+Completed on Day 18:
+
+* `review --format markdown` emits deterministic
+  `assessment-review-report.v1` Markdown from the same verified review object
+  used by the unchanged JSON output;
+* the report preserves canonical evidence, metric, and finding order, exposes
+  unavailable information without converting it to negative evidence, keeps
+  policy conditions separate from human conditions, and presents the optional
+  immutable decision and durable provenance without a recommendation;
+* identical verified state produces byte-identical Markdown without network,
+  write, clock, reevaluation, or new durable-artifact activity; and
+* 281 repository tests pass. Day 18 adds no schema, persistence record, AI,
+  PDF, HTML, authentication, authorization, workflow, or interactive terminal
+  capability.
+
 Not yet implemented:
 
-* generated reports, AI synthesis, authentication, or authorization;
+* AI-generated synthesis, durable report records, authentication, or
+  authorization;
 * retry, resume, reassessment, current-evidence selection, or workflow state;
 * decision editing, correction, supersession, or condition-fulfillment
   tracking;
@@ -486,7 +522,7 @@ Not yet implemented:
 | --- | --- | --- |
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
 | 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy evaluation, all four durable evidence kinds, verified loading, and one-shot execution are complete |
-| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors, one complete one-shot assessment execution, durable reviewed evaluations, immutable human decisions, and the noninteractive `assess -> review -> decide` CLI are verified; reporting, general audit history, and observability remain planned |
+| 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors, one complete one-shot assessment execution, durable reviewed evaluations, immutable human decisions, the noninteractive `assess -> review -> decide` CLI, and transient deterministic Markdown review presentation are verified; AI synthesis, report persistence, general audit history, and observability remain planned |
 | 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
 
 Milestones describe intended sequencing and are not claims of completed
@@ -559,8 +595,10 @@ assessment-evaluation snapshot per assessment, and at most one immutable human
 decision per assessment. One-shot execution persists the reviewed snapshot and
 exact replay returns its original evaluation time after request and evidence
 verification. The noninteractive `assess`, read-only `review`, and immutable
-`decide` commands expose the customer flow as versioned JSON. There is no report
-generation, AI synthesis, authentication, authorization, HTTP API, or web UI.
+`decide` commands expose the customer flow. Review supports unchanged versioned
+JSON plus transient deterministic Markdown; the other command outputs remain
+versioned JSON. There is no AI synthesis, durable report, authentication,
+authorization, HTTP API, or web UI.
 
 Run its tests from the repository root with:
 
