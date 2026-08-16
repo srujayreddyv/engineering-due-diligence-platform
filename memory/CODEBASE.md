@@ -124,7 +124,18 @@ identity derivation, reopen verification, and business-content-only replay.
 The CLI exposes this existing capability without adding a durable replay-status
 field; `recorded` or `exact_replay` is returned from the persistence transaction.
 
-The automated suite contains 281 tests. There is no AI synthesis, durable
+The production runtime is also exercised by a dependency-free, network-free
+Day 19 system evaluation under `scripts/`. Exactly ten frozen scenarios enter
+through the real CLI and GitHub collector path, use disposable schema-v5
+databases, and verify evidence, metrics, policy, review presentation, selected
+human decisions, replay, unavailability, and fail-closed behavior. Completed
+scenarios are repeated from fresh databases and customer-visible outputs are
+compared byte for byte. The runner emits one versioned deterministic JSON
+summary. This engineered suite establishes implementation conformance; it does
+not validate the provisional policy or replace later live-repository
+demonstrations.
+
+The automated suite contains 286 tests. There is no AI synthesis, durable
 report record, authentication, authorization, retry, resume, reassessment,
 decision editing or correction, condition-fulfillment tracking, HTTP API, web
 UI, or new observability infrastructure.
@@ -145,6 +156,7 @@ database decision.
 * `docs/` contains project, engagement, ADR, and checkpoint documentation.
 * `plans/` contains temporary implementation plans.
 * `journal/` contains daily engagement records.
-* `scripts/` contains project automation scripts.
+* `scripts/` contains the frozen deterministic system evaluation definitions
+  and runner plus project automation placeholders.
 * `examples/` contains example inputs and usage artifacts.
 * `data/` contains project data artifacts.

@@ -213,6 +213,28 @@ sanitized, and no command adds an HTTP API, interactive input, authentication,
 authorization, AI synthesis, report persistence, workflow state, or condition
 management.
 
+## Deterministic System Evaluation Boundary
+
+The system-level conformance harness lives under `scripts/`, outside the
+production package. It declares ten frozen scenarios, patches only existing
+transport, identity, and clock seams, and exercises the real CLI, collectors,
+schema-v5 persistence, deterministic evaluator, review renderer, and decision
+boundary with temporary databases. It does not duplicate collectors, metrics,
+policy decisions, review rendering, or durable records.
+
+Successful scenarios rerun from fresh databases and compare stable JSON,
+Markdown, and applicable decision output bytes. The context pair holds source
+responses, evaluation time, repository facts, and metric projections constant
+while changing only assessment risk tolerance. Expected failure scenarios
+verify partial durable evidence and corrupt evaluation behavior without
+converting failures into conclusions.
+
+This boundary demonstrates current implementation conformance. It is not part
+of the customer runtime, does not use a live network, and does not validate
+policy fitness, statistical accuracy, customer ROI, or live-repository realism.
+Its single versioned JSON summary is transient evaluation output, not a new
+business or persistence record.
+
 ## Initial Deployment Shape
 
 The first version is a modular backend application rather than a distributed

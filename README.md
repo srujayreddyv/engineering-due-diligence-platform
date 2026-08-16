@@ -1,6 +1,6 @@
 # Engineering Due Diligence Platform
 
-> **Current status:** Through Day 18, the prototype validates one assessment
+> **Current status:** Through Day 19, the prototype validates one assessment
 > request, persists and reopen-verifies four authoritative public GitHub
 > evidence records, deterministically evaluates them, and preserves the exact
 > reviewed result as one durable `AssessmentEvaluationSnapshot`. SQLite schema
@@ -8,8 +8,9 @@
 > noninteractive `assess -> review -> decide` CLI exposes the complete human-
 > owned decision path. `review` can return either its backward-compatible JSON
 > or a transient deterministic Markdown report without AI synthesis, report
-> persistence, authentication, or authorization. The full suite contains 281
-> passing tests.
+> persistence, authentication, or authorization. A network-free ten-scenario
+> deterministic system evaluation now verifies the complete workflow against
+> frozen conformance expectations. The full suite contains 286 passing tests.
 
 ## Customer Problem
 
@@ -505,6 +506,22 @@ Completed on Day 18:
   PDF, HTML, authentication, authorization, workflow, or interactive terminal
   capability.
 
+Completed on Day 19:
+
+* a dependency-free, network-free system evaluation exercises the real
+  `assess -> review -> decide` workflow across exactly ten frozen repository
+  and assessment-context scenarios;
+* the matrix covers healthy, archived, missing metadata, absent policy, old
+  activity, context sensitivity, unavailable information, partial rate-limit
+  failure, corrupt durable state, selected human decisions, and exact replay;
+* successful scenarios reproduce byte-identical JSON review, Markdown review,
+  and applicable decision output from fresh temporary databases;
+* `deterministic-system-evaluation-output.v1` reports ordered conformance
+  projections without a generation timestamp, execution duration, volatile
+  wall-clock timing, temporary paths, raw source bodies, or tracebacks; and
+* 10 of 10 predefined engineered conformance scenarios pass. This is not a
+  statistical accuracy result, policy-owner validation, or customer-ROI claim.
+
 Not yet implemented:
 
 * AI-generated synthesis, durable report records, authentication, or
@@ -514,7 +531,8 @@ Not yet implemented:
   tracking;
 * general audit history, an HTTP API, a web UI, and new observability
   infrastructure; and
-* production storage and deployment or prototype evaluation.
+* production storage and deployment, live-repository demonstrations, or
+  validation of the provisional policy with a real policy owner.
 
 ## Four Week Milestones
 
@@ -523,7 +541,7 @@ Not yet implemented:
 | 1 | Engagement definition, domain and failure models, evaluation methodology, architecture decisions, and implementation plan | Day 1 foundation and Day 2 domain and failure models complete and committed; remaining Week 1 design work planned and not implemented |
 | 2 | Tested deterministic foundation for assessment context, evidence, metrics, policy, persistence, and workflow | Request validation, deterministic context-to-policy evaluation, all four durable evidence kinds, verified loading, and one-shot execution are complete |
 | 3 | Minimum public GitHub collection, grounded report generation, human review, audit history, and essential observability | All four minimum GitHub collectors, one complete one-shot assessment execution, durable reviewed evaluations, immutable human decisions, the noninteractive `assess -> review -> decide` CLI, and transient deterministic Markdown review presentation are verified; AI synthesis, report persistence, general audit history, and observability remain planned |
-| 4 | Evaluation, reliability improvements, limitations, and engagement handoff | Planned |
+| 4 | Evaluation, reliability improvements, limitations, and engagement handoff | The ten-scenario deterministic conformance evaluation is implemented and passing; live-repository demonstration, customer validation, and handoff remain |
 
 Milestones describe intended sequencing and are not claims of completed
 capability.
@@ -546,6 +564,8 @@ capability.
   idempotency, recovery, fail-closed, audit, and security requirements.
 * [Success criteria](docs/success_criteria.md) — system metrics and separate
   prototype customer validation measures.
+* [Deterministic system evaluation](docs/deterministic_system_evaluation.md) —
+  method, ten frozen scenarios, observed conformance result, and limitations.
 * [Backlog](docs/backlog.md) — deferred ideas outside active scope.
 * [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md) — SQLite
   as the concrete prototype persistence store, without making a production
@@ -606,6 +626,16 @@ Run its tests from the repository root with:
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
+Run the deterministic system evaluation without network access with:
+
+```bash
+PYTHONPATH=src python3 scripts/run_deterministic_evaluation.py
+```
+
+The ten engineered scenarios establish implementation conformance. Later live-
+repository demonstrations address realism and usefulness and are not a
+substitute for the frozen reproducible harness.
+
 ## Working in This Repository
 
 Before planning or editing:
@@ -617,7 +647,7 @@ Before planning or editing:
 5. preserve the locked scope and documentation-layer boundaries.
 
 The latest implementation plan is
-[plans/day_17_review_and_decide_cli.md](plans/day_17_review_and_decide_cli.md).
+[plans/day_19_deterministic_system_evaluation.md](plans/day_19_deterministic_system_evaluation.md).
 The durable storage and direct-review decisions are recorded in
 [ADR 0001](docs/adr/0001_use_sqlite_for_prototype_persistence.md) and
 [ADR 0002](docs/adr/0002_direct_deterministic_review_for_prototype_decisions.md).

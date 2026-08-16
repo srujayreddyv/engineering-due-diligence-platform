@@ -182,3 +182,26 @@ External collectors require mocked failure tests.
 Workflow stages require integration tests.
 
 Bugs require regression tests.
+
+## Deterministic System Evaluation Pattern
+
+For complete-workflow conformance evaluation:
+
+1. Keep engineered scenario definitions and the runner outside the production
+   package; do not add runtime configuration solely for evaluation.
+2. Feed frozen source-shaped responses through the real transport and collector
+   path instead of constructing authoritative evidence directly.
+3. Freeze only existing identity and clock seams, use fresh temporary
+   databases, and invoke the real CLI and persistence authority boundaries.
+4. Declare expected facts, metric projections, policy outcomes, and reason
+   codes; never copy policy implementation into the runner or tune production
+   policy to make expectations pass.
+5. Demonstrate context sensitivity with identical source bytes and repository
+   facts under different assessment contexts.
+6. Preserve unavailable evidence, metric insufficiency, and `not_evaluable`
+   through presentation without turning uncertainty into negative evidence.
+7. Compare stable customer-visible output bytes across fresh runs and exclude
+   clocks, paths, durations, raw bodies, tracebacks, and volatile environment
+   data from the summary.
+8. Keep engineered conformance separate from live-repository realism,
+   policy-owner validation, statistical accuracy, and customer value claims.
